@@ -14,6 +14,10 @@ REASON_TEXT = {
     "empty": "nothing to send",
 }
 
+# Background states meaning the session has ended; anything else (including an
+# unknown or empty state) counts as running, so a reply stops it before resuming.
+FINISHED_STATES = frozenset(("done", "stopped", "completed", "failed", "error", "cancelled"))
+
 
 @dataclass(frozen=True)
 class Session:
@@ -42,7 +46,11 @@ class Session:
 
     @property
     def running(self) -> bool:
-        return self.pid is not None
+        # Interactive sessions report a pid; background sessions report none (the
+        # supervisor owns them), so their state says whether they are still alive.
+        if self.pid is not None:
+            return True
+        return self.kind == "background" and self.state not in FINISHED_STATES
 
 
 def _s(value: object) -> str:

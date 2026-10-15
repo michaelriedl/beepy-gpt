@@ -104,9 +104,26 @@ def test_recent_keeps_running_or_recent_sessions():
     got = recent(from_agents([
         agent(id="aaaa0001", pid=None, startedAt=ms - 1000),                        # recent, ms
         agent(id="aaaa0002", pid=None, startedAt=int(now) - 60),                    # recent, seconds
-        agent(id="aaaa0003", pid=None, startedAt=ms - (RECENT_SECONDS + 60) * 1000),  # old, stopped
-        agent(id="aaaa0004", pid=42, startedAt=ms - (RECENT_SECONDS + 60) * 1000),    # old but running
+        agent(id="aaaa0003", state="done", status="", waitingFor="",
+              startedAt=ms - (RECENT_SECONDS + 60) * 1000),                         # old, finished
+        agent(id="aaaa0004", kind="interactive", startedAt=ms - (RECENT_SECONDS + 60) * 1000),  # old, pid
         agent(id="aaaa0005", pid=None, startedAt=None),                             # unknown age: kept
+        # Old background session with no pid, still blocked on you: Claude Code reports
+        # background sessions without a pid, so its state decides.
+        agent(id="aaaa0006", state="blocked", status="", waitingFor="",
+              startedAt=ms - 30 * RECENT_SECONDS * 1000),
     ]), now=now)
-    assert [s.id for s in got] == ["aaaa0001", "aaaa0002", "aaaa0004", "aaaa0005"]
+    assert [s.id for s in got] == ["aaaa0001", "aaaa0002", "aaaa0004", "aaaa0005", "aaaa0006"]
     assert RECENT_SECONDS == 86400
+
+
+def test_background_running_comes_from_state_not_pid():
+    def bg(state):
+        return from_agents([agent(state=state, status="", waitingFor="")])[0]
+
+    assert agent().get("pid") is None  # background: no pid, like Claude Code
+    for state in ("blocked", "working", "idle", "", "something-new"):
+        assert bg(state).running, state
+    for state in ("done", "stopped"):
+        assert not bg(state).running, state
+    assert from_agents([agent(kind="interactive", pid=7)])[0].running

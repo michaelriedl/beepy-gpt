@@ -16,11 +16,13 @@ def agent(
     state="blocked",
     status="waiting",
     waitingFor="permission prompt",
-    pid=101,
+    pid="auto",
     cwd="/home/dev/proj",
     name="demo",
     startedAt="now",
 ):
+    if pid == "auto":  # like Claude Code: only interactive sessions report a pid
+        pid = None if kind == "background" else 101
     if startedAt == "now":  # epoch milliseconds, recent enough to pass the 24 h filter
         startedAt = int(time.time() * 1000)
     rec = {
