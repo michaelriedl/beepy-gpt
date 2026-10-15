@@ -2,15 +2,46 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import time
 from typing import Any, Callable, Optional
 
 from beepy_gpt.client.wifi import Network, WifiError, WifiStatus, sort_networks
 
+log = logging.getLogger(__name__)
+
+_SIMPLE_ESCAPES = {"\\": 0x5C, '"': 0x22, "e": 0x1B, "n": 0x0A, "r": 0x0D, "t": 0x09}
+_HEX = "0123456789abcdefABCDEF"
+
 
 def dbm_to_percent(dbm: int) -> int:
     return max(0, min(100, 2 * (dbm + 100)))
+
+
+def _unescape(s: str) -> str:
+    """Decode wpa_cli's printf-style escaping of an SSID.
+
+    An all-NUL SSID is a cloaked AP and decodes to "".
+    """
+    out = bytearray()
+    i = 0
+    while i < len(s):
+        ch = s[i]
+        nxt = s[i + 1] if i + 1 < len(s) else ""
+        hx = s[i + 2:i + 4]
+        if ch == "\\" and nxt == "x" and len(hx) == 2 and all(c in _HEX for c in hx):
+            out.append(int(hx, 16))
+            i += 4
+        elif ch == "\\" and nxt in _SIMPLE_ESCAPES:
+            out.append(_SIMPLE_ESCAPES[nxt])
+            i += 2
+        else:
+            out.extend(ch.encode("utf-8"))
+            i += 1
+    if not out.strip(b"\x00"):
+        return ""
+    return out.decode("utf-8", errors="replace")
 
 
 def _kv(text: str) -> dict:
@@ -57,30 +88,39 @@ class WpaBackend:
         for line in self._w("list_networks").splitlines()[1:]:
             f = line.split("\t")
             if len(f) >= 2:
-                rows.append((f[0], f[1], "[CURRENT]" in (f[3] if len(f) > 3 else "")))
+                rows.append((f[0], _unescape(f[1]), "[CURRENT]" in (f[3] if len(f) > 3 else "")))
         return rows
+
+    def _status(self) -> dict:
+        st = _kv(self._w("status"))
+        if "ssid" in st:
+            st["ssid"] = _unescape(st["ssid"])
+        return st
 
     def scan(self) -> list[Network]:
         self._w("scan")
         self._sleep(3)
         results = self._w("scan_results")
         saved = {ssid for _, ssid, _ in self._networks()}
-        active = _kv(self._w("status")).get("ssid")
+        active = self._status().get("ssid")
         nets = []
         for line in results.splitlines()[1:]:
             f = line.split("\t")
-            if len(f) < 5 or not f[4]:
+            if len(f) < 5:
+                continue
+            ssid = _unescape(f[4])
+            if not ssid:
                 continue
             try:
                 dbm = int(f[2])
             except ValueError:
                 continue
             secure = any(x in f[3] for x in ("WPA", "WEP", "RSN"))
-            nets.append(Network(f[4], dbm_to_percent(dbm), secure, f[4] in saved, f[4] == active))
+            nets.append(Network(ssid, dbm_to_percent(dbm), secure, ssid in saved, ssid == active))
         return sort_networks(nets)
 
     def status(self) -> WifiStatus:
-        st = _kv(self._w("status"))
+        st = self._status()
         if st.get("wpa_state") != "COMPLETED":
             return WifiStatus()
         rssi = _kv(self._w("signal_poll")).get("RSSI")
@@ -91,12 +131,26 @@ class WpaBackend:
         deadline = self._connect_timeout
         waited = 0.0
         while waited <= deadline:
-            st = _kv(self._w("status"))
+            st = self._status()
             if st.get("wpa_state") == "COMPLETED" and st.get("ssid") == ssid:
                 return True
             self._sleep(1)
             waited += 1
         return False
+
+    def _enable_all(self) -> None:
+        # select_network disables every other network in wpa_supplicant; undo that.
+        try:
+            self._w("enable_network", "all")
+        except WifiError:
+            log.warning("could not re-enable the other saved Wi-Fi networks")
+
+    def _save(self) -> None:
+        # save_config only works with update_config=1; without it the change lasts until reboot.
+        try:
+            self._w("save_config")
+        except WifiError:
+            log.warning("wpa_cli save_config failed; Wi-Fi changes will not survive a reboot")
 
     def connect(self, ssid: str, password: Optional[str] = None, hidden: bool = False) -> None:
         # Redact outside the except block so __context__ never holds the unredacted error.
@@ -116,7 +170,9 @@ class WpaBackend:
         if existing is not None and password is None:
             self._w("select_network", existing)
             if not self._wait_connected(ssid):
+                self._enable_all()
                 raise WifiError("auth_failed", f"could not join {ssid}")
+            self._enable_all()
             return
         nid = self._w("add_network").strip().splitlines()[-1]
         try:
@@ -136,17 +192,14 @@ class WpaBackend:
                 self._w("remove_network", nid)
             except WifiError:
                 pass
+            self._enable_all()
             raise
-        try:
-            self._w("save_config")
-        except WifiError:
-            pass  # works until reboot; save requires update_config=1
+        self._enable_all()
+        self._save()
 
     def forget(self, ssid: str) -> None:
         for nid, s, _ in self._networks():
             if s == ssid:
                 self._w("remove_network", nid)
-        try:
-            self._w("save_config")
-        except WifiError:
-            pass
+        self._enable_all()
+        self._save()

@@ -139,3 +139,113 @@ def test_forget():
     run.on(W + ["save_config"], stdout="OK\n")
     backend(run).forget("HomeNet")
     assert W + ["remove_network", "0"] in run.calls
+
+
+def test_unescape_decodes_wpa_cli_escapes():
+    from beepy_gpt.client.wifi.wpa import _unescape
+
+    assert _unescape(r"Caf\xc3\xa9") == "Café"
+    assert _unescape(r"a\\b\"c") == 'a\\b"c'
+    assert _unescape(r"\x00\x00") == ""
+    assert _unescape("plain") == "plain"
+
+
+def test_scan_decodes_escaped_utf8_ssid():
+    run = FakeRun()
+    run.on(W + ["scan"], stdout="OK\n")
+    run.on(W + ["scan_results"], stdout=(
+        "bssid / frequency / signal level / flags / ssid\n"
+        "aa:aa:aa:aa:aa:05\t2412\t-50\t[WPA2-PSK-CCMP][ESS]\tCaf\\xc3\\xa9\n"
+    ))
+    run.on(W + ["list_networks"], stdout="network id / ssid / bssid / flags\n")
+    run.on(W + ["status"], stdout="wpa_state=DISCONNECTED\n")
+    assert backend(run).scan() == [Network("Café", 100, True)]
+
+
+def test_scan_skips_all_nul_cloaked_ssid():
+    run = FakeRun()
+    run.on(W + ["scan"], stdout="OK\n")
+    run.on(W + ["scan_results"], stdout=(
+        "bssid / frequency / signal level / flags / ssid\n"
+        "aa:aa:aa:aa:aa:06\t2412\t-50\t[WPA2-PSK-CCMP][ESS]\t\\x00\\x00\\x00\n"
+        "aa:aa:aa:aa:aa:07\t2412\t-60\t[WPA2-PSK-CCMP][ESS]\tHomeNet\n"
+    ))
+    run.on(W + ["list_networks"], stdout="network id / ssid / bssid / flags\n")
+    run.on(W + ["status"], stdout="wpa_state=DISCONNECTED\n")
+    assert backend(run).scan() == [Network("HomeNet", 80, True)]
+
+
+def test_connect_hex_encodes_real_utf8_and_matches_escaped_status():
+    run = FakeRun()
+    run.on(W + ["list_networks"], stdout="network id / ssid / bssid / flags\n")
+    run.on(W + ["add_network"], stdout="1\n")
+    run.on(W + ["set_network"], stdout="OK\n")
+    run.on(W + ["enable_network"], stdout="OK\n")
+    run.on(W + ["select_network"], stdout="OK\n")
+    run.on(W + ["save_config"], stdout="OK\n")
+    run.on(W + ["status"], stdout="wpa_state=COMPLETED\nssid=Caf\\xc3\\xa9\n")
+    backend(run).connect("Café", "hunter2222")
+    assert W + ["set_network", "1", "ssid", "436166c3a9"] in run.calls
+
+
+def test_failed_new_connect_reenables_other_networks():
+    run = FakeRun()
+    run.on(W + ["list_networks"], stdout="network id / ssid / bssid / flags\n")
+    run.on(W + ["add_network"], stdout="3\n")
+    run.on(W + ["set_network"], stdout="OK\n")
+    run.on(W + ["enable_network"], stdout="OK\n")
+    run.on(W + ["select_network"], stdout="OK\n")
+    run.on(W + ["remove_network"], stdout="OK\n")
+    run.on(W + ["status"], stdout="wpa_state=4WAY_HANDSHAKE\n")
+    with pytest.raises(WifiError):
+        backend(run).connect("Cafe", "wrongpass1")
+    assert W + ["enable_network", "all"] in run.calls
+    assert run.calls.index(W + ["remove_network", "3"]) < run.calls.index(W + ["enable_network", "all"])
+
+
+def test_failed_saved_connect_reenables_other_networks():
+    run = FakeRun()
+    run.on(W + ["list_networks"], stdout=LIST_NETWORKS)
+    run.on(W + ["select_network"], stdout="OK\n")
+    run.on(W + ["enable_network"], stdout="OK\n")
+    run.on(W + ["status"], stdout="wpa_state=DISCONNECTED\n")
+    with pytest.raises(WifiError):
+        backend(run).connect("HomeNet")
+    assert W + ["enable_network", "all"] in run.calls
+
+
+def test_success_reenables_all_before_save_config():
+    run = FakeRun()
+    run.on(W + ["list_networks"], stdout="network id / ssid / bssid / flags\n")
+    run.on(W + ["add_network"], stdout="1\n")
+    run.on(W + ["set_network"], stdout="OK\n")
+    run.on(W + ["enable_network"], stdout="OK\n")
+    run.on(W + ["select_network"], stdout="OK\n")
+    run.on(W + ["save_config"], stdout="OK\n")
+    run.on(W + ["status"], stdout="wpa_state=COMPLETED\nssid=Cafe\n")
+    backend(run).connect("Cafe", "hunter2222")
+    assert run.calls.index(W + ["enable_network", "all"]) < run.calls.index(W + ["save_config"])
+
+
+def test_forget_reenables_all_before_save_config():
+    run = FakeRun()
+    run.on(W + ["list_networks"], stdout=LIST_NETWORKS)
+    run.on(W + ["remove_network"], stdout="OK\n")
+    run.on(W + ["enable_network"], stdout="OK\n")
+    run.on(W + ["save_config"], stdout="OK\n")
+    backend(run).forget("HomeNet")
+    assert run.calls.index(W + ["enable_network", "all"]) < run.calls.index(W + ["save_config"])
+
+
+def test_save_config_failure_is_logged_not_raised(caplog):
+    run = FakeRun()
+    run.on(W + ["list_networks"], stdout="network id / ssid / bssid / flags\n")
+    run.on(W + ["add_network"], stdout="1\n")
+    run.on(W + ["set_network"], stdout="OK\n")
+    run.on(W + ["enable_network"], stdout="OK\n")
+    run.on(W + ["select_network"], stdout="OK\n")
+    run.on(W + ["save_config"], returncode=1, stdout="FAIL\n")
+    run.on(W + ["status"], stdout="wpa_state=COMPLETED\nssid=Cafe\n")
+    with caplog.at_level("WARNING", logger="beepy_gpt.client.wifi.wpa"):
+        assert backend(run).connect("Cafe", "hunter2222") is None
+    assert any("save_config" in r.getMessage() for r in caplog.records)
