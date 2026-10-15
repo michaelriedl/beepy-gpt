@@ -29,9 +29,25 @@ class ApprovalRequest:
     description: str
     created_at: float
     expires_at: float
+    pid: Optional[int] = None  # the waiting hook process; None for older requests
 
     def to_wire(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        d.pop("pid")  # host-side bookkeeping only
+        return d
+
+    @property
+    def hook_gone(self) -> bool:
+        """The hook that would apply a decision has exited (e.g. its session stopped)."""
+        if not isinstance(self.pid, int) or self.pid <= 0:
+            return False
+        try:
+            os.kill(self.pid, 0)
+        except ProcessLookupError:
+            return True
+        except OSError:  # PermissionError and the like: it exists
+            return False
+        return False
 
 
 def _atomic_write(path: Path, text: str) -> None:
@@ -61,7 +77,7 @@ class Spool:
     def _dec(self, rid: str) -> Path:
         return self.root / f"{rid}.decision"
 
-    def create(self, payload: dict, timeout: float) -> ApprovalRequest:
+    def create(self, payload: dict, timeout: float, pid: Optional[int] = None) -> ApprovalRequest:
         self._ensure()
         now = self._clock()
         tool_input = payload.get("tool_input")
@@ -75,6 +91,7 @@ class Spool:
             description=str(tool_input.get("description", "")),
             created_at=now,
             expires_at=now + timeout,
+            pid=pid,
         )
         _atomic_write(self._req(req.request_id), json.dumps(asdict(req)))
         self.audit("request", request_id=req.request_id, session_id=req.session_id, tool=req.tool_name)
@@ -95,7 +112,7 @@ class Spool:
         out = []
         for p in sorted(self.root.glob("*.json")):
             req = self.get(p.stem)
-            if req and req.expires_at > now and not self._dec(req.request_id).exists():
+            if req and req.expires_at > now and not self._dec(req.request_id).exists() and not req.hook_gone:
                 out.append(req)
         return sorted(out, key=lambda r: r.created_at)
 
@@ -105,7 +122,7 @@ class Spool:
         req = self.get(rid)
         if req is None:
             raise SpoolError("unknown_request", "no such request")
-        if self._clock() >= req.expires_at:
+        if self._clock() >= req.expires_at or req.hook_gone:
             raise SpoolError("expired", "request expired")
         tmp = self.root / f".{rid}.{secrets.token_hex(4)}.tmp"
         tmp.write_text(

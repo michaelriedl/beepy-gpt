@@ -77,12 +77,14 @@ def _status_bar(g: Grid, st: AppState, label: str, now: datetime, ascii: bool) -
 
 
 def _info(g: Grid, st: AppState) -> None:
+    # A notice answers the user's last action (e.g. "not sent: ..."), so it beats
+    # the standing offline banner; it is cleared on the next key.
     if st.host_error:
         g.put(INFO_ROW, 0, fit(" " + st.host_error, COLS), REVERSE)
-    elif st.stale:
-        g.put(INFO_ROW, 0, fit(" offline: showing last known state", COLS), BOLD)
     elif st.notice:
         g.put(INFO_ROW, 0, fit(" " + st.notice, COLS))
+    elif st.stale:
+        g.put(INFO_ROW, 0, fit(" offline: showing last known state", COLS), BOLD)
 
 
 def _lines_at(g: Grid, lines: list, top: int = BODY_TOP, rows: int = BODY_ROWS) -> None:
@@ -163,7 +165,13 @@ def approval_lines(a: ApprovalView, ascii: bool = False) -> list[str]:
         lines += wrap(a.description, COLS)
     lines.append("")
     if a.tool_name == "Bash":
+        # The command first, then every other input (e.g. dangerouslyDisableSandbox):
+        # the user must see the full input, never a subset. `description` is shown above.
         body = "$ " + str(a.tool_input.get("command", ""))
+        for key, value in a.tool_input.items():
+            if key not in ("command", "description"):
+                shown = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+                body += f"\n{key}: {shown}"
     else:
         body = json.dumps(a.tool_input, indent=1, ensure_ascii=False)
     mark = "\\" if ascii else "↩"

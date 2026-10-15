@@ -20,7 +20,8 @@ def _sid(short: str) -> str:
 def _rec(short, kind, name, cwd, state, status, waiting, pid, started):
     return {
         "pid": pid, "id": short if kind == "background" else None,
-        "cwd": cwd, "kind": kind, "startedAt": started,
+        # epoch ms like the real CLI; `started` only orders the sessions (minutes ago)
+        "cwd": cwd, "kind": kind, "startedAt": int(time.time() * 1000) - (10 - started) * 60_000,
         "sessionId": _sid(short), "name": name, "state": state, "status": status,
         "waitingFor": waiting,
     }

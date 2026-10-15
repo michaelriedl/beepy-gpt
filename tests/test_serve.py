@@ -259,7 +259,7 @@ def test_persistent_poll_error_reported_once_until_recovery(env, clock):
     backend.agents = failing
     clock.sleep(5)
     server.tick()
-    assert [m["type"] for m in out].count("host_error") == 2
+    assert [m["message"] for m in out if m["type"] == "host_error"] == ["RuntimeError: odd", "", "RuntimeError: odd"]
 
 
 def test_feed_cache_miss_repolls(env):
@@ -285,3 +285,62 @@ def test_hello_failure_becomes_error(env):
     backend.version = boom
     server.handle({"type": "hello", "id": 0, "v": PROTOCOL_VERSION})
     assert out[0]["error"]["code"] == "internal"
+
+
+def test_host_error_cleared_after_recovery(env, clock):
+    server, backend, _, out, _ = env
+    hello(server)
+    out.clear()
+    backend.fail = "claude agents failed: Not logged in"
+    clock.sleep(5)
+    server.tick()
+    backend.fail = None
+    clock.sleep(5)
+    server.tick()
+    clock.sleep(5)
+    server.tick()
+    errors = [m for m in out if m["type"] == "host_error"]
+    assert errors == [
+        {"type": "host_error", "message": "claude agents failed: Not logged in"},
+        {"type": "host_error", "message": ""},
+    ]
+
+
+def test_tick_error_cleared_after_recovery(env, monkeypatch):
+    server, _, spool, out, _ = env
+    hello(server)
+    out.clear()
+    real = spool.pending
+
+    def boom():
+        raise OSError("spool unreadable")
+
+    monkeypatch.setattr(spool, "pending", boom)
+    server.tick()
+    monkeypatch.setattr(spool, "pending", real)
+    server.tick()
+    server.tick()
+    errors = [m["message"] for m in out if m["type"] == "host_error"]
+    assert errors == ["OSError: spool unreadable", ""]
+
+
+def test_poll_lists_recent_finished_sessions_and_drops_old_ones(env):
+    import time
+
+    server, backend, _, out, _ = env
+    seen = []
+
+    def agents(include_all=False):
+        seen.append(include_all)
+        now_ms = int(time.time() * 1000)
+        return [
+            agent(id="aaaa1111", state="stopped", status=None, waitingFor=None, pid=None, startedAt=now_ms - 3600_000),
+            agent(id="bbbb2222", state="done", status="idle", waitingFor=None, pid=None, startedAt=now_ms - 2 * 86400_000),
+            agent(id="cccc3333", state="done", status="idle", waitingFor=None, pid=7, startedAt=now_ms - 9 * 86400_000),
+        ]
+
+    backend.agents = agents
+    hello(server)
+    [snap] = [m for m in out if m["type"] == "sessions"]
+    assert seen and all(seen)
+    assert sorted(s["id"] for s in snap["sessions"]) == ["aaaa1111", "cccc3333"]

@@ -13,7 +13,15 @@ from beepy_gpt import __version__
 from beepy_gpt.host.actions import ActionError, reply
 from beepy_gpt.host.approvals import ApprovalRequest, Spool, SpoolError
 from beepy_gpt.host.claude_cli import ClaudeError
-from beepy_gpt.host.sessions import REASON_TEXT, Session, find_session, from_agents, sort_sessions, to_wire
+from beepy_gpt.host.sessions import (
+    REASON_TEXT,
+    Session,
+    find_session,
+    from_agents,
+    recent,
+    sort_sessions,
+    to_wire,
+)
 from beepy_gpt.host.transcripts import read_events, set_claude_version
 from beepy_gpt.protocol import PROTOCOL_VERSION, ProtocolError, decode, encode, response_error, response_ok
 
@@ -148,13 +156,23 @@ class Server:
                 self._last_tick_error = msg
                 self.out({"type": "host_error", "message": msg})
         else:
-            self._last_tick_error = None
+            if self._last_tick_error is not None:
+                self._last_tick_error = None
+                self._error_resolved()
+
+    def _error_resolved(self) -> None:
+        """An empty host_error clears the client's banner once nothing is failing."""
+        if self._last_error is None and self._last_tick_error is None:
+            self.out({"type": "host_error", "message": ""})
 
     def _poll(self) -> None:
         """Refresh the session cache; a failure is reported once until a poll succeeds."""
         try:
-            self._sessions = sort_sessions(from_agents(self.backend.agents()))
-            self._last_error = None
+            # --all keeps finished background sessions listed, so they can still be woken.
+            self._sessions = sort_sessions(recent(from_agents(self.backend.agents(include_all=True))))
+            if self._last_error is not None:
+                self._last_error = None
+                self._error_resolved()
         except Exception as e:
             text = str(e) if isinstance(e, ClaudeError) else f"{type(e).__name__}: {e}"
             if text != self._last_error:

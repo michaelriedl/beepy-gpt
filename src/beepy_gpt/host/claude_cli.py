@@ -17,6 +17,10 @@ class ClaudeError(RuntimeError):
     """`claude` is missing, failed, or printed something unexpected."""
 
 
+class ClaudeTimeout(ClaudeError):
+    """`claude` did not finish in time; what it did before being killed is unknown."""
+
+
 @dataclass(frozen=True)
 class ResumeResult:
     short_id: Optional[str]
@@ -50,7 +54,7 @@ class ClaudeCLI:
         except FileNotFoundError:
             raise ClaudeError("claude not found (is Claude Code installed and on PATH?)") from None
         except subprocess.TimeoutExpired:
-            raise ClaudeError(f"claude {args[0]} timed out") from None
+            raise ClaudeTimeout(f"claude {args[0]} timed out") from None
         except OSError as e:
             raise ClaudeError(f"claude {args[0]} could not run: {e.strerror or e}") from None
         if p.returncode != 0:

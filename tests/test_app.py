@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from beepy_gpt.client.app import App
 from beepy_gpt.client.keys import BACK, BACKSPACE, DOWN, ENTER, UP
 from beepy_gpt.config import ClientConfig
@@ -82,6 +84,24 @@ def test_reply_needs_two_enters_and_reports_offline(clock):
     assert app.view.screen == "sessions"
     req.sent[-1][2]({"type": "response", "ok": False, "error": {"code": "offline", "message": "not connected; nothing was sent"}})
     assert app.state.notice == "not sent: not connected; nothing was sent"
+    # the typed reply is kept so the user can retry once back online
+    assert app.view.screen == "reply" and app.view.session_id == "sid-d" and app.view.text == "hi"
+    assert app.view.confirm is None and len(app.views) == 2
+
+
+def test_offline_reply_answered_synchronously_keeps_text(clock):
+    app, req, _ = make(clock)
+    app.on_event({"type": "connection", "status": "reconnecting"})
+
+    def offline(type_, callback=None, **fields):
+        req.sent.append((type_, fields, callback))
+        callback({"type": "response", "ok": False, "error": {"code": "offline", "message": "not connected"}})
+
+    app.request = offline
+    keys(app, DOWN, "r", "h", "i", ENTER, ENTER)
+    assert app.view.screen == "reply" and app.view.text == "hi" and len(app.views) == 2
+    row = app.render(datetime(2026, 1, 2, 14, 5)).row_text(27)
+    assert "not sent: not connected" in row
 
 
 def test_w_is_text_inside_reply(clock):
@@ -212,6 +232,7 @@ def test_reply_lost_is_not_called_not_sent(clock):
     req.sent[-1][2]({"type": "response", "ok": False, "error": {"code": "lost", "message": LOST_MESSAGE}})
     assert app.state.notice == "reply: " + LOST_MESSAGE
     assert "not sent" not in app.state.notice
+    assert app.view.screen == "sessions"  # may have been delivered: the text is not kept
     assert req.types() == ["reply"]  # never auto-resent
 
 

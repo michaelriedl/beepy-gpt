@@ -5,8 +5,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from beepy_gpt.host.claude_cli import ClaudeError
-from beepy_gpt.host.sessions import REASON_TEXT, find_session, from_agents, reply_block_reason
+from beepy_gpt.host.claude_cli import ClaudeError, ClaudeTimeout
+from beepy_gpt.host.sessions import REASON_TEXT, find_session, from_agents, recent, reply_block_reason
 
 
 class ActionError(Exception):
@@ -29,7 +29,7 @@ def prepare_text(text: str) -> str:
 
 
 def _lookup(backend: Any, ident: str):
-    s = find_session(from_agents(backend.agents()), ident)
+    s = find_session(recent(from_agents(backend.agents(include_all=True))), ident)
     if s is None:
         raise _err("unknown_session")
     reason = reply_block_reason(s)
@@ -55,6 +55,12 @@ def reply(backend: Any, ident: str, text: str) -> dict:
                 stopped = True
         result = backend.resume_bg(s.session_id, body, cwd=s.cwd)
     except ClaudeError as e:
+        if stopped and isinstance(e, ClaudeTimeout):
+            raise ActionError(
+                "claude_error",
+                "session was stopped; the reply may or may not have been delivered (timed out)"
+                " - check before resending",
+            ) from None
         if stopped:
             raise ActionError(
                 "claude_error", f"session was stopped but the reply was not sent: {e}"

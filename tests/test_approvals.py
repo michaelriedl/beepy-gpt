@@ -110,3 +110,40 @@ def test_cleanup_keeps_recent_and_sweeps_orphans(spool):
     orphan.write_text('{"behavior": "allow"}')
     spool.cleanup(max_age=86400)
     assert spool.get(req.request_id) == req and not orphan.exists()
+
+
+def dead_pid():
+    import subprocess
+    import sys
+
+    p = subprocess.Popen([sys.executable, "-c", "pass"])
+    p.wait()
+    return p.pid
+
+
+def test_request_records_hook_pid(spool):
+    import os
+
+    req = spool.create(PAYLOAD, timeout=60, pid=os.getpid())
+    assert spool.get(req.request_id).pid == os.getpid()
+    assert "pid" not in req.to_wire()
+    assert [r.request_id for r in spool.pending()] == [req.request_id]
+
+
+def test_request_of_dead_hook_is_not_pending_and_cannot_be_decided(spool):
+    req = spool.create(PAYLOAD, timeout=60, pid=dead_pid())
+    assert spool.pending() == []
+    with pytest.raises(SpoolError) as e:
+        spool.decide(req.request_id, "allow")
+    assert e.value.code == "expired"
+    assert spool.read_decision(req.request_id) is None
+
+
+def test_request_without_pid_behaves_as_before(spool, tmp_path):
+    req = spool.create(PAYLOAD, timeout=60)
+    path = spool.root / f"{req.request_id}.json"
+    data = json.loads(path.read_text())
+    data.pop("pid", None)  # a request written by an older hook
+    path.write_text(json.dumps(data))
+    assert [r.request_id for r in spool.pending()] == [req.request_id]
+    spool.decide(req.request_id, "allow")

@@ -69,7 +69,8 @@ def parse_entry(entry: dict) -> list[FeedEvent]:
         _warn_once(f"entry type {etype!r}")
         return []
     speaker = "you" if etype == "user" else "claude"
-    content = (entry.get("message") or {}).get("content")
+    msg = entry.get("message")
+    content = msg.get("content") if isinstance(msg, dict) else None
     if isinstance(content, str):
         text = content.strip()
         return [FeedEvent(speaker, text)] if text else []

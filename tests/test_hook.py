@@ -111,3 +111,37 @@ def test_wait_uses_timeout_plus_grace(spool, clock, monkeypatch):
     monkeypatch.setattr(spool, "wait_decision", lambda rid, t, **kw: seen.append(t))
     assert run_hook(STDIN, BG_ENV, spool, 60, bg_agents, sleep=clock.sleep) == ""
     assert seen == [62.0]
+
+
+def test_hook_records_its_pid(spool, clock):
+    import os
+
+    def sleep(s):
+        clock.sleep(s)
+        [req] = spool.pending()
+        assert req.pid == os.getpid()
+        spool.decide(req.request_id, "deny")
+
+    assert run_hook(STDIN, BG_ENV, spool, 60, bg_agents, poll=1, sleep=sleep)
+
+
+def test_main_uses_short_agents_timeout(monkeypatch, tmp_path):
+    import io
+    import types
+
+    from beepy_gpt.host import claude_cli, hook
+
+    made = []
+
+    class CLI:
+        def __init__(self, *a, **k):
+            made.append(k)
+
+        def agents(self):
+            return []
+
+    monkeypatch.setattr(claude_cli, "ClaudeCLI", CLI)
+    monkeypatch.setattr(hook, "load_host_config", lambda: types.SimpleNamespace(state_dir=tmp_path, hook_timeout_seconds=60))
+    monkeypatch.setattr("sys.stdin", io.StringIO("{}"))
+    assert hook.main() == 0
+    assert made == [{"timeout": hook.AGENTS_TIMEOUT_SECONDS}] and hook.AGENTS_TIMEOUT_SECONDS == 10

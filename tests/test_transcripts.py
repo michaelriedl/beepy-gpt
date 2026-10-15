@@ -92,3 +92,15 @@ def test_unknown_block_warning_names_claude_version(caplog):
     ]
     msgs = [r.getMessage() for r in caplog.records]
     assert any("'gizmo'" in m and "2.1.300" in m for m in msgs)
+
+
+def test_non_dict_message_does_not_wedge_the_feed(tmp_path):
+    p = tmp_path / "t.jsonl"
+    p.write_text(
+        json.dumps({"type": "user", "message": "plain string"}) + "\n"
+        + json.dumps({"type": "assistant", "message": ["a", "list"]}) + "\n"
+        + json.dumps({"type": "user", "message": {"content": "hello"}}) + "\n"
+    )
+    events, offset = read_events(p)
+    assert offset == p.stat().st_size
+    assert events == [FeedEvent("unknown", "user entry"), FeedEvent("unknown", "assistant entry"), FeedEvent("you", "hello")]

@@ -94,3 +94,19 @@ def test_interactive_working_reports_interactive():
 def test_non_numeric_started_at_does_not_drop_the_list():
     got = from_agents([agent(startedAt="bad"), agent(id="bbbb2222", startedAt=5)])
     assert [s.started_at for s in got] == [0, 5]
+
+
+def test_recent_keeps_running_or_recent_sessions():
+    from beepy_gpt.host.sessions import RECENT_SECONDS, recent
+
+    now = 2_000_000_000.0
+    ms = int(now * 1000)
+    got = recent(from_agents([
+        agent(id="aaaa0001", pid=None, startedAt=ms - 1000),                        # recent, ms
+        agent(id="aaaa0002", pid=None, startedAt=int(now) - 60),                    # recent, seconds
+        agent(id="aaaa0003", pid=None, startedAt=ms - (RECENT_SECONDS + 60) * 1000),  # old, stopped
+        agent(id="aaaa0004", pid=42, startedAt=ms - (RECENT_SECONDS + 60) * 1000),    # old but running
+        agent(id="aaaa0005", pid=None, startedAt=None),                             # unknown age: kept
+    ]), now=now)
+    assert [s.id for s in got] == ["aaaa0001", "aaaa0002", "aaaa0004", "aaaa0005"]
+    assert RECENT_SECONDS == 86400

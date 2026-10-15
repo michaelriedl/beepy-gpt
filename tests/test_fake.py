@@ -55,3 +55,11 @@ def test_reply_through_actions_and_server(tmp_path, clock):
     assert reply(fake, "eeee5555", "x") == {"forked_as": "f0f0f0f0"}
     with pytest.raises(ActionError):
         reply(fake, "bbbb2222", "go on")  # still working
+
+
+def test_stopped_fake_session_stays_listed(tmp_path, clock):
+    from beepy_gpt.host.sessions import recent
+
+    fake, _ = make(tmp_path, clock)
+    fake.stop("eeee5555")
+    assert find_session(recent(from_agents(fake.agents(include_all=True))), "eeee5555") is not None

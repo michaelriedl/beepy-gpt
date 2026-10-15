@@ -181,3 +181,24 @@ def test_notice_beats_more_below_on_approval():
     st = reduce(reduce(st, {"type": "host_error", "message": ""}), {"type": "connection", "status": "reconnecting"})
     st = reduce(st, {"type": "host_error", "message": ""})
     assert "offline" in render(st, View("approval", request_id="r1"), "w", NOW).row_text(27)
+
+
+def test_bash_approval_shows_every_input_key():
+    a = reduce(AppState(), {"type": "approvals", "approvals": [{**APPROVAL, "tool_input": {
+        "command": "rm -rf build", "description": "Clean", "dangerouslyDisableSandbox": True,
+        "timeout": 600000, "run_in_background": False, "note": "x" * 80,
+    }}]}).approvals[0]
+    lines = approval_lines(a)
+    assert "$ rm -rf build" in lines
+    assert "dangerouslyDisableSandbox: true" in lines
+    assert "timeout: 600000" in lines and "run_in_background: false" in lines
+    assert not any(line.startswith("description:") or line.startswith("command:") for line in lines)
+    note = [i for i, line in enumerate(lines) if line.startswith("note: ")][0]
+    assert lines[note].endswith("↩") and (lines[note][:-1] + lines[note + 1]) == "note: " + "x" * 80
+
+
+def test_notice_beats_stale_banner():
+    st = base_state(connection={"status": "reconnecting"})
+    assert "offline" in render(st, View("sessions"), "w", NOW).row_text(27)
+    st = reduce(st, {"type": "notice", "text": "not sent: not connected"})
+    assert "not sent: not connected" in render(st, View("sessions"), "w", NOW).row_text(27)

@@ -90,3 +90,16 @@ def test_os_error_becomes_claude_error():
 
 def test_version(stub_claude):
     assert stub_claude.cli().version() == "2.1.300 (Claude Code)"
+
+
+def test_timeout_raises_claude_timeout():
+    import subprocess
+
+    from beepy_gpt.host.claude_cli import ClaudeTimeout
+
+    def run(argv, **kw):
+        raise subprocess.TimeoutExpired(argv, kw["timeout"])
+
+    with pytest.raises(ClaudeTimeout) as e:
+        ClaudeCLI(run=run).stop("aaaa1111")
+    assert isinstance(e.value, ClaudeError) and "timed out" in str(e.value)

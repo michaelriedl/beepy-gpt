@@ -201,5 +201,11 @@ def test_no_online_after_stop(tmp_path):
 def test_ssh_argv():
     assert ssh_argv("user@workstation", ["-p", "2222"], "bgpt-host") == [
         "ssh", "-o", "BatchMode=yes", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3",
-        "-p", "2222", "user@workstation", "bgpt-host", "serve",
+        "-p", "2222", "-o", "ConnectTimeout=10", "user@workstation", "bgpt-host", "serve",
     ]
+
+
+def test_ssh_argv_user_connect_timeout_wins():
+    # ssh keeps the first value given for an option, so user options come first.
+    argv = ssh_argv("user@workstation", ["-o", "ConnectTimeout=30"], "bgpt-host")
+    assert argv.index("ConnectTimeout=30") < argv.index("ConnectTimeout=10")

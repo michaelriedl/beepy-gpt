@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Iterable, Optional
@@ -77,6 +78,28 @@ def from_agents(raw: Iterable[object]) -> list[Session]:
             )
         )
     return out
+
+
+# `agents --all` also lists finished sessions; keep those started within this window.
+RECENT_SECONDS = 86400
+
+
+def _started_seconds(started_at: int) -> float:
+    # Claude Code reports epoch milliseconds; accept seconds too (a value below 1e11
+    # would be a date before 1973 in milliseconds, so it must be seconds).
+    return started_at / 1000 if started_at >= 1e11 else float(started_at)
+
+
+def recent(sessions: Iterable[Session], now: Optional[float] = None) -> list[Session]:
+    """Running sessions, plus finished ones started in the last RECENT_SECONDS.
+
+    A session without a start time is kept: its age is unknown.
+    """
+    now = time.time() if now is None else now
+    return [
+        s for s in sessions
+        if s.running or not s.started_at or now - _started_seconds(s.started_at) <= RECENT_SECONDS
+    ]
 
 
 def sort_sessions(sessions: Iterable[Session]) -> list[Session]:

@@ -184,3 +184,9 @@ def test_reduce_does_not_mutate_inputs():
         reduce(base, ev)
         assert base == state_before
         assert ev == ev_before
+
+
+def test_empty_host_error_clears_it():
+    st = reduce(AppState(), {"type": "host_error", "message": "claude agents failed"})
+    assert st.host_error
+    assert not reduce(st, {"type": "host_error", "message": ""}).host_error

@@ -85,6 +85,11 @@ class App:
         if ev.get("type") == "decide_failed":
             self._decided.discard(ev.get("request_id"))
             return
+        if ev.get("type") == "reply_not_sent":
+            # Known not to have been written: reopen the reply with its text for a retry.
+            if self.view.screen != "reply":
+                self.views.append(View("reply", session_id=ev.get("session_id"), text=str(ev.get("text", ""))))
+            return
         prev = self.state
         self.state = reduce(self.state, ev)
         if ev.get("type") == "approvals":
@@ -253,10 +258,13 @@ class App:
                     fork = r.get("forked_as")
                     self._notice("sent" + (f"; Claude continued it as a copy ({fork})" if fork else ""))
                 else:
+                    if (r.get("error") or {}).get("code") == "offline":
+                        self.post({"type": "reply_not_sent", "session_id": sid, "text": text})
                     self._notice(_failure_text("reply", r))
 
-            self.request("reply", cb, session_id=sid, text=text)
+            # Pop first: an offline failure is reported synchronously and reopens the view.
             self.views.pop()
+            self.request("reply", cb, session_id=sid, text=text)
 
     # --- approvals ------------------------------------------------------
     def _close_approval_views(self) -> None:

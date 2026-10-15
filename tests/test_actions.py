@@ -15,8 +15,8 @@ def test_running_session_is_stopped_then_resumed_without_flags(stub_claude, tmp_
     stub_claude.set_agents([agent(state="blocked", status="idle", waitingFor=None, cwd=str(tmp_path))])
     assert reply(stub_claude.cli(), "aaaa1111", "  hello  ") == {"forked_as": None}
     assert argvs(stub_claude) == [
-        ["agents", "--json"],
-        ["agents", "--json"],
+        ["agents", "--json", "--all"],
+        ["agents", "--json", "--all"],
         ["stop", "aaaa1111"],
         ["--resume", SID, "--bg", "hello"],
     ]
@@ -26,7 +26,7 @@ def test_running_session_is_stopped_then_resumed_without_flags(stub_claude, tmp_
 def test_stopped_session_is_resumed_directly(stub_claude, tmp_path):
     stub_claude.set_agents([agent(state="stopped", status=None, waitingFor=None, pid=None, cwd=str(tmp_path))])
     reply(stub_claude.cli(), SID, "go")
-    assert argvs(stub_claude) == [["agents", "--json"], ["--resume", SID, "--bg", "go"]]
+    assert argvs(stub_claude) == [["agents", "--json", "--all"], ["--resume", SID, "--bg", "go"]]
 
 
 @pytest.mark.parametrize(
@@ -42,7 +42,7 @@ def test_guarded_sessions_are_refused_without_side_effects(stub_claude, rec, cod
     with pytest.raises(ActionError) as e:
         reply(stub_claude.cli(), "aaaa1111", "hi")
     assert e.value.code == code
-    assert argvs(stub_claude) == [["agents", "--json"]]
+    assert argvs(stub_claude) == [["agents", "--json", "--all"]]
 
 
 def test_reply_unknown_session(stub_claude):
@@ -87,7 +87,7 @@ def test_missing_cwd_becomes_claude_error(stub_claude, tmp_path):
     with pytest.raises(ActionError) as e:
         reply(stub_claude.cli(), SID, "hi")
     assert e.value.code == "claude_error"
-    assert argvs(stub_claude) == [["agents", "--json"]]
+    assert argvs(stub_claude) == [["agents", "--json", "--all"]]
 
 
 def test_prepare_text():
@@ -132,3 +132,43 @@ def test_resume_failure_after_stop_says_session_was_stopped(stub_claude, tmp_pat
     assert e.value.message.startswith("session was stopped but the reply was not sent: ")
     assert "boom" in e.value.message
     assert ["stop", "aaaa1111"] in argvs(stub_claude)
+
+
+def test_finished_session_from_all_is_replyable(stub_claude, tmp_path):
+    stub_claude.set_agents([agent(state="stopped", status=None, waitingFor=None, pid=None, cwd=str(tmp_path))])
+    assert reply(stub_claude.cli(), "aaaa1111", "wake up") == {"forked_as": None}
+    assert argvs(stub_claude) == [["agents", "--json", "--all"], ["--resume", SID, "--bg", "wake up"]]
+
+
+def test_old_finished_session_is_unknown(stub_claude, tmp_path):
+    import time
+
+    old = int(time.time() * 1000) - 2 * 86400_000
+    stub_claude.set_agents([agent(state="done", status="idle", waitingFor=None, pid=None, cwd=str(tmp_path), startedAt=old)])
+    with pytest.raises(ActionError) as e:
+        reply(stub_claude.cli(), "aaaa1111", "hi")
+    assert e.value.code == "unknown_session"
+    assert argvs(stub_claude) == [["agents", "--json", "--all"]]
+
+
+def test_resume_timeout_after_stop_says_it_may_have_been_delivered(stub_claude, tmp_path):
+    from beepy_gpt.host.claude_cli import ClaudeTimeout
+
+    stub_claude.set_agents([agent(state="blocked", status="idle", waitingFor=None, cwd=str(tmp_path))])
+    real = stub_claude.cli()
+
+    class Backend:
+        agents = staticmethod(real.agents)
+        stop = staticmethod(real.stop)
+
+        @staticmethod
+        def resume_bg(*a, **k):
+            raise ClaudeTimeout("claude --resume timed out")
+
+    with pytest.raises(ActionError) as e:
+        reply(Backend, "aaaa1111", "hi")
+    assert e.value.code == "claude_error"
+    assert e.value.message == (
+        "session was stopped; the reply may or may not have been delivered (timed out)"
+        " - check before resending"
+    )

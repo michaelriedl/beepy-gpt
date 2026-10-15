@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import time
 from pathlib import Path
 
 GOLDEN = Path(__file__).parent / "golden"
@@ -18,8 +19,10 @@ def agent(
     pid=101,
     cwd="/home/dev/proj",
     name="demo",
-    startedAt=1000,
+    startedAt="now",
 ):
+    if startedAt == "now":  # epoch milliseconds, recent enough to pass the 24 h filter
+        startedAt = int(time.time() * 1000)
     rec = {
         "pid": pid,
         "id": id if kind == "background" else None,

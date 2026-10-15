@@ -14,6 +14,9 @@ from beepy_gpt.host.approvals import Spool
 # The request expires at `timeout`, but Spool.decide() checks expiry before writing,
 # so a decision accepted just before expires_at could land after our last read.
 DECISION_GRACE_SECONDS = 2.0
+# `agents --json` is only a cross-check; keep it short so the whole hook stays well
+# inside the installed hook timeout (hook_timeout_seconds + 30).
+AGENTS_TIMEOUT_SECONDS = 10.0
 
 
 def is_interactive(
@@ -58,7 +61,8 @@ def run_hook(
             return ""
         if is_interactive(env, str(payload.get("session_id", "")), agents):
             return ""
-        req = spool.create(payload, timeout)
+        # Our pid lets the host drop the request if this process dies (session stopped).
+        req = spool.create(payload, timeout, pid=os.getpid())
         decision = spool.wait_decision(
             req.request_id, timeout + DECISION_GRACE_SECONDS, poll=poll, sleep=sleep)
         if decision is None:
@@ -76,7 +80,7 @@ def main() -> int:
 
         cfg = load_host_config()
         spool = Spool(cfg.state_dir / "approvals", audit_log=cfg.state_dir / "audit.log")
-        out = run_hook(sys.stdin.read(), os.environ, spool, cfg.hook_timeout_seconds, ClaudeCLI().agents)
+        out = run_hook(sys.stdin.read(), os.environ, spool, cfg.hook_timeout_seconds, ClaudeCLI(timeout=AGENTS_TIMEOUT_SECONDS).agents)
     except Exception:
         out = ""
     if out:

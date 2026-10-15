@@ -20,7 +20,8 @@ log = logging.getLogger(__name__)
 def ssh_argv(target: str, options: list[str], host_command: str) -> list[str]:
     return [
         "ssh", "-o", "BatchMode=yes", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3",
-        *options, target, host_command, "serve",
+        # After the user's options: ssh keeps the first value, so theirs win.
+        *options, "-o", "ConnectTimeout=10", target, host_command, "serve",
     ]
 
 
