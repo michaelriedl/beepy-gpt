@@ -4,8 +4,8 @@
 session: Refactor parser
 Run the parser tests
 
-$ python -m pytest tests/test_parser.py --maxfail=
-1 -k 'tokenize or parse_header'
+$ python -m pytest tests/test_parser.py --maxfail↩
+=1 -k 'tokenize or parse_header'
 
 
 

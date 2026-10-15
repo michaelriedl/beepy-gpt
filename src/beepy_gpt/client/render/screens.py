@@ -142,6 +142,8 @@ def feed_lines(feed) -> list[tuple[str, int]]:
 def _detail(g: Grid, st: AppState, v: View) -> None:
     s = st.session(v.session_id)
     title = f"{s.project} · {s.name}" if s else "session no longer listed"
+    if s and s.reply_block:
+        title = fit(title, COLS - 5) + " [RO]"
     g.put(BODY_TOP, 0, fit(title, COLS), BOLD)
     top = BODY_TOP + 1
     a = st.approval_for_session(v.session_id)
@@ -150,13 +152,13 @@ def _detail(g: Grid, st: AppState, v: View) -> None:
         top += 1
     rows = BODY_TOP + BODY_ROWS - top
     lines = feed_lines(st.feed) if st.feed_session == v.session_id else [("loading…", NORMAL)]
-    end = max(0, len(lines) - v.scroll)
+    end = max(min(rows, len(lines)), len(lines) - v.scroll)
     _lines_at(g, lines[max(0, end - rows):end], top, rows)
 
 
 # --- approval ------------------------------------------------------------
-def approval_lines(a: ApprovalView) -> list[str]:
-    lines = [f"session: {a.session_name or a.session_id[:8]}"]
+def approval_lines(a: ApprovalView, ascii: bool = False) -> list[str]:
+    lines = [fit(f"session: {a.session_name or a.session_id[:8]}", COLS).rstrip()]
     if a.description:
         lines += wrap(a.description, COLS)
     lines.append("")
@@ -164,8 +166,13 @@ def approval_lines(a: ApprovalView) -> list[str]:
         body = "$ " + str(a.tool_input.get("command", ""))
     else:
         body = json.dumps(a.tool_input, indent=1, ensure_ascii=False)
+    mark = "\\" if ascii else "↩"
     for para in body.split("\n"):
-        lines += chunks(para, COLS)
+        if len(para) <= COLS:
+            lines.append(para)
+        else:
+            parts = chunks(para, COLS - 1)
+            lines += [p + mark for p in parts[:-1]] + [parts[-1]]
     return lines
 
 
@@ -175,11 +182,12 @@ def _approval(g: Grid, st: AppState, v: View) -> None:
         g.put(BODY_TOP + 2, 0, "This request was answered or expired.")
         return
     g.put(BODY_TOP, 0, fit(f" ALLOW?  {a.tool_name} in {a.project}", COLS), REVERSE)
-    lines = approval_lines(a)
+    lines = approval_lines(a, g.ascii)
     rows = BODY_ROWS - 1
     top = min(v.scroll, max(0, len(lines) - rows))
     _lines_at(g, lines[top:top + rows], BODY_TOP + 1, rows)
-    if top + rows < len(lines):
+    # A host error / offline / notice line has priority on the info row, so "more below" yields to it.
+    if top + rows < len(lines) and not (st.host_error or st.stale or st.notice):
         g.put(INFO_ROW, 0, fit(" ↓ more below", COLS), BOLD)
 
 
@@ -221,13 +229,16 @@ def _wifi(g: Grid, st: AppState, v: View) -> None:
     g.put(BODY_TOP, COLS - len(head) - 1, head)
     if st.wifi_busy:
         g.put(BODY_TOP + 2, 1, "scanning…")
-    for i, n in enumerate(st.networks[: BODY_ROWS - 2]):
+    rows = BODY_ROWS - 2
+    start = max(0, v.selected - rows + 1)
+    for j, n in enumerate(st.networks[start:start + rows]):
+        i = start + j
         sel = i == v.selected
         row = (
             f"{'▶' if sel else ' '} {fit(n.ssid, 24)} {signal_bars(n.signal, g.ascii)} "
             f"{'WPA ' if n.secure else 'open'} {'saved' if n.saved else '     '}{'*' if n.active else ' '}"
         )
-        g.put(BODY_TOP + 2 + i, 0, fit(row, COLS), REVERSE if sel else NORMAL)
+        g.put(BODY_TOP + 2 + j, 0, fit(row, COLS), REVERSE if sel else NORMAL)
     if st.wifi_error:
         g.put(INFO_ROW, 0, fit(" " + st.wifi_error, COLS), REVERSE)
 
@@ -284,5 +295,10 @@ def render(st: AppState, v: View, label: str, now: datetime, ascii: bool = False
     if v.message:
         g.put(FOOTER_ROW, 0, fit(" " + v.message, COLS), REVERSE)
     else:
-        g.put(FOOTER_ROW, 0, HINTS.get(v.screen, ""))
+        hint = HINTS.get(v.screen, "")
+        if v.screen == "detail":
+            s = st.session(v.session_id)
+            if s and s.reply_block:
+                hint = hint.replace("  r reply", "")
+        g.put(FOOTER_ROW, 0, hint)
     return g

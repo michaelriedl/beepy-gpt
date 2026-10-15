@@ -80,11 +80,11 @@ def test_session_row_layout():
 
 
 def test_long_command_fully_reachable():
-    cmd = "echo " + " ".join(f"arg{i}" for i in range(120)) + "\nsecond line ✓"
+    cmd = "echo " + " ".join(f"arg{i}" for i in range(120)) + " 日本\nsecond line ✓"
     a = reduce(AppState(), {"type": "approvals", "approvals": [{**APPROVAL, "tool_input": {"command": cmd}}]}).approvals[0]
     lines = approval_lines(a)
     assert all(len(line) <= 50 for line in lines)
-    assert "".join(lines).replace(" ", "").endswith(cmd.replace(" ", "").replace("\n", ""))
+    assert "".join(lines).replace("↩", "").replace(" ", "").endswith(cmd.replace(" ", "").replace("\n", ""))
     st = base_state(approvals={"approvals": [{**APPROVAL, "tool_input": {"command": cmd}}]})
     g = render(st, View("approval", request_id="r1", scroll=10_000), "w", NOW)
     body = "".join(g.row_text(r) for r in range(2, 27))
@@ -121,3 +121,63 @@ def test_goldens():
     for name, (st, view) in cases.items():
         assert_golden(name, render(st, view, "workstation", NOW))
     assert_golden("sessions_ascii", render(base_state(), View("sessions"), "workstation", NOW, ascii=True))
+
+
+def _appr(**over):
+    return reduce(AppState(), {"type": "approvals", "approvals": [{**APPROVAL, **over}]}).approvals[0]
+
+
+def test_wrapped_line_differs_from_real_newline():
+    wrapped = _appr(tool_input={"command": "echo " + "x" * 43 + "rm -rf ~"})
+    newline = _appr(tool_input={"command": "echo " + "x" * 43 + "\nrm -rf ~"})
+    lw, ln = approval_lines(wrapped), approval_lines(newline)
+    assert lw != ln
+    assert any(line.endswith("↩") for line in lw) and not any(line.endswith("↩") for line in ln)
+    assert all(len(line) <= 50 for line in lw)
+    assert "".join(line.rstrip("↩") for line in lw[-2:]).endswith("echo " + "x" * 43 + "rm -rf ~")
+    assert any(line.endswith("\\") for line in approval_lines(wrapped, ascii=True))
+
+
+def test_session_line_fitted():
+    a = _appr(session_name="n" * 80)
+    assert len(approval_lines(a)[0]) <= 50
+
+
+def _feed_state(n):
+    ev = [{"kind": "claude", "text": f"line {i}", "ok": None} for i in range(n)]
+    return base_state(feed={"session_id": "aaaa1111-sid", "events": ev})
+
+
+def test_detail_scroll_is_clamped():
+    st = _feed_state(3)
+    for sc in (3, 50):
+        body = "".join(render(st, View("detail", session_id="aaaa1111-sid", scroll=sc), "w", NOW).row_text(r) for r in range(2, 27))
+        assert "line 2" in body and "line 0" in body
+
+
+def test_wifi_selected_visible_beyond_window():
+    nets = [Network(f"net{i:02d}", 50, True) for i in range(30)]
+    st = base_state(wifi_networks={"networks": nets})
+    g = render(st, View("wifi", selected=28), "w", NOW)
+    rows = [r for r in range(30) if "net28" in g.row_text(r)]
+    assert rows and g.attr(rows[0], 0) == REVERSE
+
+
+def test_detail_read_only_cue():
+    st = base_state(feed={"session_id": "cccc3333-sid", "events": []})
+    g = render(st, View("detail", session_id="cccc3333-sid"), "w", NOW)
+    assert "[RO]" in g.row_text(2) and "r reply" not in g.row_text(29)
+    g = render(base_state(feed={"session_id": "dddd4444-sid", "events": []}), View("detail", session_id="dddd4444-sid"), "w", NOW)
+    assert "[RO]" not in g.row_text(2) and "r reply" in g.row_text(29)
+
+
+def test_notice_beats_more_below_on_approval():
+    cmd = "\n".join(f"line {i}" for i in range(60))
+    st = base_state(approvals={"approvals": [{**APPROVAL, "tool_input": {"command": cmd}}]})
+    assert "more below" in render(st, View("approval", request_id="r1"), "w", NOW).row_text(27)
+    st = reduce(st, {"type": "host_error", "message": "claude agents failed"})
+    row = render(st, View("approval", request_id="r1"), "w", NOW).row_text(27)
+    assert "claude agents failed" in row
+    st = reduce(reduce(st, {"type": "host_error", "message": ""}), {"type": "connection", "status": "reconnecting"})
+    st = reduce(st, {"type": "host_error", "message": ""})
+    assert "offline" in render(st, View("approval", request_id="r1"), "w", NOW).row_text(27)
