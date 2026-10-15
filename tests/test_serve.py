@@ -233,3 +233,55 @@ def test_serve_stdio_does_not_split_on_unicode_separators(env):
     os.close(r)
     assert not any(m.get("error", {}).get("code") == "bad_message" for m in out)
     assert ("resume", SID, "a\u2028b\u2029c\x85d") in server.backend.calls
+
+
+def test_persistent_poll_error_reported_once_until_recovery(env, clock):
+    server, backend, _, out, _ = env
+    hello(server)
+    out.clear()
+    calls = {"n": 0}
+    good = backend.records
+
+    def failing(include_all=False):
+        calls["n"] += 1
+        raise RuntimeError("odd")
+
+    backend.agents = failing
+    for _ in range(9):
+        clock.sleep(1)
+        server.tick()
+    assert calls["n"] >= 2
+    assert [m["type"] for m in out] == ["host_error"]
+    del backend.agents
+    backend.records = good
+    clock.sleep(5)
+    server.tick()
+    backend.agents = failing
+    clock.sleep(5)
+    server.tick()
+    assert [m["type"] for m in out].count("host_error") == 2
+
+
+def test_feed_cache_miss_repolls(env):
+    server, backend, _, out, transcript = env
+    transcript.write_text("")
+    backend.records = []
+    hello(server)
+    backend.records = [agent(state="done", status="idle", waitingFor=None)]
+    out.clear()
+    server.handle({"type": "feed", "id": 30, "session_id": SID})
+    assert out[0]["ok"] is True
+    out.clear()
+    server.handle({"type": "feed", "id": 31, "session_id": "nope"})
+    assert out[0]["error"]["code"] == "unknown_session"
+
+
+def test_hello_failure_becomes_error(env):
+    server, backend, _, out, _ = env
+
+    def boom():
+        raise RuntimeError("x")
+
+    backend.version = boom
+    server.handle({"type": "hello", "id": 0, "v": PROTOCOL_VERSION})
+    assert out[0]["error"]["code"] == "internal"

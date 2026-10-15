@@ -89,3 +89,8 @@ def test_blocked_session_with_waiting_for_is_replyable():
 def test_interactive_working_reports_interactive():
     inter = from_agents([agent(kind="interactive", state="working", status="working", waitingFor=None)])[0]
     assert reply_block_reason(inter) == "interactive"
+
+
+def test_non_numeric_started_at_does_not_drop_the_list():
+    got = from_agents([agent(startedAt="bad"), agent(id="bbbb2222", startedAt=5)])
+    assert [s.started_at for s in got] == [0, 5]

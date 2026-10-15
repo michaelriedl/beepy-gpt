@@ -50,7 +50,10 @@ class Server:
         rid = msg.get("id")
         mtype = msg.get("type")
         if mtype == "hello":
-            self._on_hello(msg, rid)
+            try:
+                self._on_hello(msg, rid)
+            except Exception as e:  # never crash on a bad hello
+                self.out(response_error(rid, "internal", f"{type(e).__name__}: {e}"))
             return
         if not self._hello:
             self.out(response_error(rid, "no_hello", "send hello first"))
@@ -69,6 +72,7 @@ class Server:
             handler(msg, rid)
         except (ActionError, SpoolError) as e:
             self.out(response_error(rid, e.code, str(e)))
+            return
         except ClaudeError as e:
             self.out(response_error(rid, "claude_error", str(e)))
             return
@@ -100,8 +104,11 @@ class Server:
         self.tick(force=True)
 
     def _on_feed(self, msg: dict, rid: Any) -> None:
-        sessions = self._sessions or from_agents(self.backend.agents())
-        s = find_session(sessions, str(msg.get("session_id", "")))
+        ident = str(msg.get("session_id", ""))
+        s = find_session(self._sessions, ident)
+        if s is None:  # cache miss: poll once before giving up
+            self._poll()
+            s = find_session(self._sessions, ident)
         if s is None:
             raise ActionError("unknown_session", REASON_TEXT["unknown_session"])
         path = self.transcript_for(s)
@@ -143,19 +150,24 @@ class Server:
         else:
             self._last_tick_error = None
 
+    def _poll(self) -> None:
+        """Refresh the session cache; a failure is reported once until a poll succeeds."""
+        try:
+            self._sessions = sort_sessions(from_agents(self.backend.agents()))
+            self._last_error = None
+        except Exception as e:
+            text = str(e) if isinstance(e, ClaudeError) else f"{type(e).__name__}: {e}"
+            if text != self._last_error:
+                self._last_error = text
+                self.out({"type": "host_error", "message": text})
+
     def _tick(self, force: bool) -> None:
         if not self._hello:
             return
         now = self.clock()
         if force or now - self._last_poll >= self.poll_seconds:
             self._last_poll = now
-            try:
-                self._sessions = sort_sessions(from_agents(self.backend.agents()))
-                self._last_error = None
-            except ClaudeError as e:
-                if str(e) != self._last_error:
-                    self._last_error = str(e)
-                    self.out({"type": "host_error", "message": str(e)})
+            self._poll()
             wire = [to_wire(s) for s in self._sessions]
             if wire != self._sessions_wire:
                 self._sessions_wire = wire

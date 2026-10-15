@@ -48,6 +48,13 @@ def _s(value: object) -> str:
     return "" if value is None else str(value)
 
 
+def _int(value: object) -> int:
+    try:
+        return int(value or 0)  # type: ignore[call-overload]
+    except (TypeError, ValueError):
+        return 0
+
+
 def from_agents(raw: Iterable[object]) -> list[Session]:
     out = []
     for a in raw:
@@ -65,7 +72,7 @@ def from_agents(raw: Iterable[object]) -> list[Session]:
                 state=_s(a.get("state")),
                 status=_s(a.get("status")),
                 waiting_for=_s(a.get("waitingFor")),
-                started_at=int(a.get("startedAt") or 0),
+                started_at=_int(a.get("startedAt")),
                 pid=int(pid) if isinstance(pid, int) else None,
             )
         )
