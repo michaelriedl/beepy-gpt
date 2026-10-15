@@ -90,7 +90,7 @@ def find_session(sessions: Iterable[Session], ident: str) -> Optional[Session]:
 def reply_block_reason(s: Session) -> Optional[str]:
     if s.kind != "background":
         return "interactive"
-    if s.working:
+    if s.state == "working" or s.status == "working":
         return "working"
     return None
 

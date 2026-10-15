@@ -74,3 +74,18 @@ def test_to_wire_keys():
         "waiting_for", "needs_you", "working", "reply_block",
     }
     assert w["reply_block"] is None and w["needs_you"] is True
+
+
+def test_reply_blocked_while_working_even_with_waiting_for():
+    stale = from_agents([agent(state="working", status="waiting", waitingFor="permission prompt")])[0]
+    assert reply_block_reason(stale) == "working"
+
+
+def test_blocked_session_with_waiting_for_is_replyable():
+    blocked = from_agents([agent(state="blocked", status="waiting", waitingFor="permission prompt")])[0]
+    assert reply_block_reason(blocked) is None
+
+
+def test_interactive_working_reports_interactive():
+    inter = from_agents([agent(kind="interactive", state="working", status="working", waitingFor=None)])[0]
+    assert reply_block_reason(inter) == "interactive"
