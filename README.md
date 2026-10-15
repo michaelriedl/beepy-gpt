@@ -5,7 +5,7 @@ Catch up on and steer your Claude Code sessions from a Beepy handheld (or any sm
 `bgpt` is a small curses client that runs on the device. `bgpt-host` is a helper on your
 workstation that wraps the Claude Code CLI. Together they let you see which background sessions
 are working, blocked or done, read what they did, reply to them, and approve or deny the tool
-runs that Claude Code's auto mode escalates, all on a 50x30 screen with a thumb keyboard.
+runs they ask permission for, all on a 50x30 screen with a thumb keyboard.
 
 ```
  workstation ●  2 need you wifi▂▄▆ 14:05 BAT 63%+
@@ -57,8 +57,10 @@ Beepy (bgpt)                                    Workstation (bgpt-host)
 ```
 
 There is no daemon and no open port. The client starts `bgpt-host serve` over SSH, so SSH does
-all of the authentication and encryption. When the connection drops, the client shows a stale
-banner, disables writes and reconnects on its own.
+all of the authentication and encryption. When the connection drops, the client keeps showing the
+last known state with an offline banner and reconnects on its own. A reply or decision made while
+offline is not sent and says so ("not sent: ..."); an unsent reply stays open with its text so you
+can send it again once the connection is back.
 
 ## Requirements
 
@@ -92,6 +94,10 @@ bgpt doctor
 bgpt
 ```
 
+SSH runs `bgpt-host` in a non-login shell, which may not have `~/.local/bin` (where pipx puts it)
+on its `PATH`. If `bgpt doctor` reports that the host command was not found, set
+`host_command = ~/.local/bin/bgpt-host` in the `[host]` section of `client.ini`.
+
 ## Working with sessions
 
 - Start away-from-desk work with `claude --bg --permission-mode auto "..."`.
@@ -102,7 +108,9 @@ bgpt
   working again or disappeared, or if its working directory no longer exists
   ("working directory is missing"). If the stop worked but the resume failed, the message says
   "session was stopped but the reply was not sent: ..." so you know to retry.
-- Only actions that auto mode escalates reach the Beepy.
+- Permission prompts of background sessions are parked for the Beepy. For a session running in
+  auto mode that means only the actions auto mode escalates; a session in another permission mode
+  sends every prompt it would normally show. Interactive sessions keep prompting in their terminal.
 - Requests that fail on the way are never resent automatically. "offline" means the request was
   not sent. "lost" means the connection dropped mid-request, so it may have been delivered:
   check the session before sending it again.
@@ -127,8 +135,8 @@ The device only needs the arrow keys, Enter, Esc (Back), Backspace and printable
 
 ## Battery and LED
 
-The battery percentage comes from a smoothed voltage reading. The `+` after it is a best-guess
-charging indicator based on the voltage rising. The LED flashes until you press a key when
+The battery percentage is the firmware's own percentage, smoothed over about a minute. The voltage
+only feeds the `+` after it, a best-guess charging indicator based on the voltage rising. The LED flashes until you press a key when
 something needs you.
 
 ## Wi-Fi
