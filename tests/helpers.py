@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
+from pathlib import Path
+
+GOLDEN = Path(__file__).parent / "golden"
+
 
 def agent(
     id="aaaa1111",
@@ -49,3 +54,16 @@ class FakeRun:
             if argv[: len(prefix)] == prefix:
                 return subprocess.CompletedProcess(argv, rc, out, err)
         return subprocess.CompletedProcess(argv, 1, "", f"FakeRun: unexpected {argv}")
+
+
+def assert_golden(name, grid):
+    import pytest
+
+    path = GOLDEN / f"{name}.txt"
+    snap = grid.snapshot()
+    if os.environ.get("BGPT_UPDATE_GOLDEN") or not path.exists():
+        GOLDEN.mkdir(exist_ok=True)
+        path.write_text(snap, encoding="utf-8")
+        if not os.environ.get("BGPT_UPDATE_GOLDEN"):
+            pytest.fail(f"golden {name} created at {path}; review it, then re-run")
+    assert snap == path.read_text(encoding="utf-8"), f"screen {name} changed; diff against {path}"
