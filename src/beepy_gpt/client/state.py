@@ -22,6 +22,12 @@ def _finite(v: Any) -> Optional[float]:
     return f if math.isfinite(f) else None
 
 
+def _expires(v: Any) -> float:
+    """Approval expiry as a float; missing or invalid reads as 0.0 (expired, fail-closed)."""
+    f = _finite(v)
+    return 0.0 if f is None else f
+
+
 def _dicts(v: Any) -> tuple:
     """The dict elements of a list-valued wire field; anything else gives ()."""
     if not isinstance(v, (list, tuple)):
@@ -69,7 +75,7 @@ class ApprovalView:
     tool_name: str
     tool_input: dict
     description: str
-    expires_at: Optional[float]
+    expires_at: float
 
     @staticmethod
     def from_wire(d: dict) -> "ApprovalView":
@@ -78,7 +84,7 @@ class ApprovalView:
             request_id=str(d.get("request_id", "")), session_id=str(d.get("session_id", "")),
             project=str(d.get("project", "")), session_name=str(d.get("session_name", "")),
             tool_name=str(d.get("tool_name", "")), tool_input=dict(ti) if isinstance(ti, dict) else {},
-            description=str(d.get("description", "")), expires_at=_finite(d.get("expires_at")),
+            description=str(d.get("description", "")), expires_at=_expires(d.get("expires_at")),
         )
 
 

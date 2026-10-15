@@ -148,7 +148,13 @@ def test_malformed_events_never_raise(ev):
 
 def test_malformed_values_fall_back():
     st = reduce(AppState(), {"type": "approvals", "approvals": [{**A1, "expires_at": "soon"}]})
-    assert st.approvals[0].expires_at is None
+    assert st.approvals[0].expires_at == 0.0
+    st = reduce(AppState(), {"type": "approvals", "approvals": [{**A1, "expires_at": float("inf")}]})
+    assert st.approvals[0].expires_at == 0.0
+    st = reduce(AppState(), {"type": "approvals", "approvals": [{**A1, "expires_at": None}]})
+    assert st.approvals[0].expires_at == 0.0
+    st = reduce(AppState(), {"type": "approvals", "approvals": [A1]})
+    assert st.approvals[0].expires_at == 9.0
     st = reduce(AppState(), {"type": "battery", "percent": "x"})
     assert st.battery is None
     st = reduce(AppState(), {"type": "sessions", "sessions": [None, S1, 1]})
