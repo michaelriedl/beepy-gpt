@@ -38,11 +38,14 @@ class WifiError(Exception):
         self.message = message
 
 
+BAR_GLYPHS = "▂▄▆"
+
+
 def signal_bars(signal: Optional[int], ascii: bool = False) -> str:
     if signal is None:
         return "___"
     levels = 3 if signal >= 67 else 2 if signal >= 34 else 1
-    glyphs = "###" if ascii else "▂▄▆"
+    glyphs = "###" if ascii else BAR_GLYPHS
     return glyphs[:levels] + "_" * (3 - levels)
 
 

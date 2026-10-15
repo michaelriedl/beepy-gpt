@@ -1,3 +1,4 @@
+import os
 import logging
 
 from beepy_gpt.client.device import Device, NullDevice, open_device
@@ -49,3 +50,11 @@ def test_open_device_missing_root(tmp_path, caplog):
     assert isinstance(d, NullDevice) and not d.available and d.read_battery() is None
     d.set_led_alert(True)
     assert any("no Beepy firmware" in r.getMessage() for r in caplog.records)
+
+
+def test_led_writable(tmp_path):
+    d = Device(make_sysfs(tmp_path))
+    (d.root / "led").write_text("0")
+    assert d.led_writable()
+    (d.root / "led").chmod(0o444)
+    assert d.led_writable() == (os.geteuid() == 0)  # root ignores file modes

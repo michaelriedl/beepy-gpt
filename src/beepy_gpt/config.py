@@ -45,6 +45,8 @@ class ClientConfig:
     wifi_interface: str = "wlan0"
     pin: str = ""
     pin_idle_minutes: int = 10
+    # Code points the console font can draw; detected at startup, not read from the file.
+    glyphs: Optional[frozenset] = None
 
 
 def _bool(raw: str) -> bool:

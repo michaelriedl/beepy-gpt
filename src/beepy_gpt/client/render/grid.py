@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import unicodedata
 
-from beepy_gpt.client.render.text import to_ascii
+from typing import Optional
+
+from beepy_gpt.client.render.text import to_ascii, to_glyphs
 
 NORMAL, BOLD, REVERSE = 0, 1, 2
 _ALLOWED = BOLD | REVERSE
@@ -29,8 +31,10 @@ def safe_char(ch: str) -> str:
 
 
 class Grid:
-    def __init__(self, cols: int = COLS, rows: int = ROWS, ascii: bool = False):
-        self.cols, self.rows, self.ascii = cols, rows, ascii
+    def __init__(self, cols: int = COLS, rows: int = ROWS, ascii: bool = False,
+                 glyphs: Optional[frozenset] = None):
+        # glyphs: code points the display font can draw (None = assume all of them).
+        self.cols, self.rows, self.ascii, self.glyphs = cols, rows, ascii, glyphs
         self._ch = [[" "] * cols for _ in range(rows)]
         self._at = [[NORMAL] * cols for _ in range(rows)]
 
@@ -41,6 +45,8 @@ class Grid:
             return col
         if self.ascii:
             text = to_ascii(text)
+        elif self.glyphs is not None:
+            text = to_glyphs(text, self.glyphs)
         for ch in text:
             if col >= self.cols:
                 break
@@ -49,6 +55,12 @@ class Grid:
                 self._at[row][col] = attr
             col += 1
         return col
+
+    def can_draw(self, text: str) -> bool:
+        """True if every character of `text` shows as itself (no ASCII stand-in)."""
+        if self.ascii:
+            return text.isascii()
+        return self.glyphs is None or all(ord(c) < 128 or ord(c) in self.glyphs for c in text)
 
     def fill_attr(self, row: int, attr: int) -> None:
         if attr & ~_ALLOWED:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Optional, Union
 
@@ -31,6 +32,10 @@ class Device:
             if name not in self._warned:
                 self._warned.add(name)
                 log.warning("cannot write %s: %s", self.root / name, e)
+
+    def led_writable(self) -> bool:
+        # The firmware's sysfs files are root-only unless a udev rule opens them up.
+        return os.access(self.root / "led", os.W_OK)
 
     def read_battery(self) -> Optional[tuple[int, float]]:
         try:

@@ -202,3 +202,24 @@ def test_notice_beats_stale_banner():
     assert "offline" in render(st, View("sessions"), "w", NOW).row_text(27)
     st = reduce(st, {"type": "notice", "text": "not sent: not connected"})
     assert "not sent: not connected" in render(st, View("sessions"), "w", NOW).row_text(27)
+
+
+# What the stock Beepy console font (fbcon VGA8x8) maps beyond ASCII, among the UI's characters.
+BEEPY_FONT = frozenset(ord(c) for c in "─▶↓↑·○§▄│┘└┐┌")
+
+
+def test_console_font_gaps_get_ascii_stand_ins():
+    st = base_state(approvals={"approvals": [{**APPROVAL, "tool_input": {"command": "echo " + "x" * 60}}]})
+    g = render(st, View("approval", request_id="r1"), "workstation", NOW, glyphs=BEEPY_FONT)
+    text = "\n".join(g.row_text(r) for r in range(g.rows))
+    # The wrap marker must stay visible: a missing glyph would hide where a command wraps.
+    assert any(g.row_text(r).rstrip().endswith("\\") for r in range(g.rows))
+    assert "↩" not in text
+    assert "─" * 50 in text  # box drawing is in the font: kept
+    status = render(base_state(), View("sessions"), "workstation", NOW, glyphs=BEEPY_FONT).row_text(0)
+    assert "wifi###" in status and "●" not in status and "*" in status  # bars switch as a set
+
+
+def test_no_glyph_set_means_unicode_unchanged():
+    g = render(base_state(), View("sessions"), "workstation", NOW, glyphs=None)
+    assert "▂▄▆" in g.row_text(0)

@@ -60,8 +60,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.command == "doctor":
         from beepy_gpt.client.doctor import run_client_doctor
 
+        from beepy_gpt.client.console import console_glyphs
+
         return run_client_doctor(cfg, print, device=open_device(cfg.sysfs_root),
-                                 wifi=detect_backend(cfg.wifi_interface))
+                                 wifi=detect_backend(cfg.wifi_interface),
+                                 glyphs=console_glyphs())
 
     from beepy_gpt.client.app import App
     from beepy_gpt.client.transport import Transport
@@ -79,7 +82,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         wifi = FakeWifi()
         checks = wifi.checks
     else:
+        from beepy_gpt.client.console import console_glyphs
+
         wifi = detect_backend(cfg.wifi_interface)
+        cfg.glyphs = console_glyphs()
     fake_host = (args.host or ("fake" if args.emulate else "ssh")) == "fake"
     try:
         argv_host = host_argv(cfg, fake_host)

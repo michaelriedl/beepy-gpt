@@ -28,8 +28,14 @@ def test_host_argv():
 class Dev:
     available = True
 
+    def __init__(self, led_writable=True):
+        self._led = led_writable
+
     def read_battery(self):
         return (63, 3.8)
+
+    def led_writable(self):
+        return self._led
 
 
 class Wifi:
@@ -64,3 +70,26 @@ def test_client_doctor_whitespace_stderr_does_not_crash():
                            device=None, wifi=None, term_size=lambda: os.terminal_size((50, 30)))
     assert rc == 1
     assert "[!!] host: no output" in lines
+
+
+def test_client_doctor_flags_unwritable_led_and_reports_font():
+    run = FakeRun()
+    run.on(["ssh"], stdout="bgpt-host 0.1.0\n")
+    lines = []
+    rc = run_client_doctor(ClientConfig(ssh_target="user@workstation"), lines.append, run=run,
+                           device=Dev(led_writable=False), wifi=Wifi(),
+                           term_size=lambda: os.terminal_size((50, 30)), glyphs=frozenset({ord("─")}))
+    assert rc == 1
+    assert any(line.startswith("[!!] led:") for line in lines)
+    assert any(line.startswith("[ok] console font: ASCII stand-ins for") and "↩" in line for line in lines)
+
+
+def test_console_glyphs_none_off_console():
+    from beepy_gpt.client.console import console_glyphs
+
+    r, w = os.pipe()
+    try:
+        assert console_glyphs(r) is None
+    finally:
+        os.close(r)
+        os.close(w)

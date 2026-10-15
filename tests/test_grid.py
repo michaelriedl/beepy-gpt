@@ -93,3 +93,11 @@ def test_to_ascii_dashes_and_quotes():
 def test_fit_zero_width():
     assert fit("abc", 0) == ""
     assert fit("abc", -1) == ""
+
+
+def test_glyph_set_replaces_only_missing_characters():
+    g = Grid(glyphs=frozenset({ord("─")}))
+    g.put(0, 0, "─●↩é")
+    assert g.row_text(0).startswith("─*\\?")
+    assert g.can_draw("─") and not g.can_draw("●") and g.can_draw("abc")
+    assert Grid().can_draw("●") and not Grid(ascii=True).can_draw("●")

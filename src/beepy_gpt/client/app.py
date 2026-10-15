@@ -140,7 +140,7 @@ class App:
                 v.selected = max(0, min(v.selected, len(self.state.networks) - 1))
 
     def render(self, now: datetime) -> Grid:
-        return render(self.state, self.view, self.cfg.host_label, now, self.cfg.ascii)
+        return render(self.state, self.view, self.cfg.host_label, now, self.cfg.ascii, self.cfg.glyphs)
 
     # --- helpers --------------------------------------------------------
     def _selected_session(self):

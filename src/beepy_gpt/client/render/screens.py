@@ -10,6 +10,7 @@ from typing import Callable, Optional
 from beepy_gpt.client.render.grid import BOLD, COLS, NORMAL, REVERSE, Grid
 from beepy_gpt.client.render.text import chunks, fit, wrap
 from beepy_gpt.client.state import AppState, ApprovalView, SessionView
+from beepy_gpt.client.wifi import BAR_GLYPHS as BARS
 from beepy_gpt.client.wifi import signal_bars
 
 BODY_TOP, BODY_ROWS = 2, 25
@@ -190,7 +191,7 @@ def _approval(g: Grid, st: AppState, v: View) -> None:
         g.put(BODY_TOP + 2, 0, "This request was answered or expired.")
         return
     g.put(BODY_TOP, 0, fit(f" ALLOW?  {a.tool_name} in {a.project}", COLS), REVERSE)
-    lines = approval_lines(a, g.ascii)
+    lines = approval_lines(a, not g.can_draw("↩"))
     rows = BODY_ROWS - 1
     top = min(v.scroll, max(0, len(lines) - rows))
     _lines_at(g, lines[top:top + rows], BODY_TOP + 1, rows)
@@ -232,7 +233,7 @@ def _wifi_hidden(g: Grid, st: AppState, v: View) -> None:
 # --- wifi ----------------------------------------------------------------
 def _wifi(g: Grid, st: AppState, v: View) -> None:
     cur = st.wifi
-    head = f"connected: {cur.ssid} {signal_bars(cur.signal, g.ascii)}" if cur and cur.ssid else "not connected"
+    head = f"connected: {cur.ssid} {signal_bars(cur.signal, not g.can_draw(BARS))}" if cur and cur.ssid else "not connected"
     g.put(BODY_TOP, 0, "WI-FI", BOLD)
     g.put(BODY_TOP, COLS - len(head) - 1, head)
     if st.wifi_busy:
@@ -243,7 +244,7 @@ def _wifi(g: Grid, st: AppState, v: View) -> None:
         i = start + j
         sel = i == v.selected
         row = (
-            f"{'▶' if sel else ' '} {fit(n.ssid, 24)} {signal_bars(n.signal, g.ascii)} "
+            f"{'▶' if sel else ' '} {fit(n.ssid, 24)} {signal_bars(n.signal, not g.can_draw(BARS))} "
             f"{'WPA ' if n.secure else 'open'} {'saved' if n.saved else '     '}{'*' if n.active else ' '}"
         )
         g.put(BODY_TOP + 2 + j, 0, fit(row, COLS), REVERSE if sel else NORMAL)
@@ -289,9 +290,10 @@ SCREENS: dict[str, Callable[[Grid, AppState, View], None]] = {
 }
 
 
-def render(st: AppState, v: View, label: str, now: datetime, ascii: bool = False) -> Grid:
-    g = Grid(ascii=ascii)
-    _status_bar(g, st, label, now, ascii)
+def render(st: AppState, v: View, label: str, now: datetime, ascii: bool = False,
+           glyphs: Optional[frozenset] = None) -> Grid:
+    g = Grid(ascii=ascii, glyphs=glyphs)
+    _status_bar(g, st, label, now, not g.can_draw(BARS))
     g.put(1, 0, "─" * COLS)
     g.put(28, 0, "─" * COLS)
     if st.fatal:

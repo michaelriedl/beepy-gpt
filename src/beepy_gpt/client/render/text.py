@@ -7,8 +7,11 @@ import textwrap
 _ASCII = str.maketrans({
     "●": "*", "○": "o", "✕": "x", "▶": ">", "✓": "+", "✗": "x", "…": "~", "─": "-",
     "▂": "#", "▄": "#", "▆": "#", "·": "-", "▏": "|", "↵": "<", "↑": "^", "↓": "v",
-    "—": "-", "–": "-", "‘": "'", "’": "'", "“": '"', "”": '"',
+    "—": "-", "–": "-", "‘": "'", "’": "'", "“": '"', "”": '"', "↩": "\\",
 })
+
+# Every non-ASCII character the UI draws itself (user text may contain others).
+UI_GLYPHS = "".join(chr(k) for k in _ASCII if chr(k) not in "—–‘’“”")
 
 
 def wrap(text: str, width: int, indent: str = "") -> list[str]:
@@ -37,3 +40,8 @@ def fit(text: str, width: int) -> str:
 def to_ascii(text: str) -> str:
     out = text.translate(_ASCII)
     return "".join(c if ord(c) < 128 else "?" for c in out)
+
+
+def to_glyphs(text: str, glyphs: frozenset) -> str:
+    """Replace each character the font cannot draw with its ASCII stand-in."""
+    return "".join(c if ord(c) < 128 or ord(c) in glyphs else to_ascii(c) for c in text)
