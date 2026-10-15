@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import threading
 from pathlib import Path
@@ -12,6 +13,8 @@ from beepy_gpt.protocol import PROTOCOL_VERSION, ProtocolError, decode, encode, 
 
 BACKOFF = (1, 2, 4, 8, 16, 30)
 OFFLINE_MESSAGE = "not connected; nothing was sent"
+LOST_MESSAGE = "connection lost; it may have been delivered — check before resending"
+log = logging.getLogger(__name__)
 
 
 def ssh_argv(target: str, options: list[str], host_command: str) -> list[str]:
@@ -74,10 +77,17 @@ class Transport:
                     return rid
                 except (OSError, ValueError):
                     self._pending.pop(rid, None)
-        cb(response_error(None, "offline", OFFLINE_MESSAGE))
+        self._call(cb, response_error(None, "offline", OFFLINE_MESSAGE))
         return None
 
     # --- internals ------------------------------------------------------
+    @staticmethod
+    def _call(fn: Callable[..., Any], *args: Any) -> None:
+        try:
+            fn(*args)
+        except Exception:
+            log.exception("transport callback raised")
+
     def _spawn(self) -> Any:
         err = open(self._stderr_path, "a") if self._stderr_path else subprocess.DEVNULL
         try:
@@ -86,13 +96,19 @@ class Transport:
                 text=True, encoding="utf-8", errors="replace", bufsize=1,
             )
         except OSError as e:
-            self._on_message({"type": "host_error", "message": f"cannot start {self._argv[0]}: {e.strerror or e}"})
+            self._call(self._on_message, {"type": "host_error", "message": f"cannot start {self._argv[0]}: {e.strerror or e}"})
             return None
         finally:
             if err is not subprocess.DEVNULL:
                 err.close()
         with self._lock:
             self._proc = proc
+            stopped = self._stopped.is_set()
+        if stopped:
+            self._kill(proc)
+            with self._lock:
+                self._proc = None
+            return None
         return proc
 
     def _kill(self, proc: Any) -> None:
@@ -105,6 +121,7 @@ class Transport:
             proc.wait(timeout=2)
         except subprocess.TimeoutExpired:
             proc.kill()
+            proc.wait()
 
     def _handshake(self, proc: Any) -> str:
         try:
@@ -118,25 +135,29 @@ class Transport:
             except ProtocolError:
                 continue
             if msg.get("type") != "response" or msg.get("id") != 0:
-                self._on_message(msg)
+                self._call(self._on_message, msg)
                 continue
             if msg.get("ok"):
+                if self._stopped.is_set():
+                    return "retry"
                 with self._lock:
                     self._online = True
-                self._on_message({
+                self._call(self._on_message, {
                     "type": "hello", "host_version": msg.get("host_version", ""),
                     "claude_version": msg.get("claude_version", ""), "claude_error": msg.get("claude_error"),
                 })
                 return "ok"
-            err = msg.get("error") or {}
+            err = msg.get("error")
+            if not isinstance(err, dict):
+                err = {}
             if err.get("code") == "protocol_mismatch":
-                self._on_message({
+                self._call(self._on_message, {
                     "type": "fatal",
                     "message": f"protocol mismatch ({err.get('message')}; this client speaks "
                     f"{PROTOCOL_VERSION}). Upgrade beepy-gpt on both machines.",
                 })
                 return "fatal"
-            self._on_message({"type": "host_error", "message": str(err.get("message", "hello failed"))})
+            self._call(self._on_message, {"type": "host_error", "message": str(err.get("message", "hello failed"))})
             return "retry"
         return "retry"
 
@@ -148,39 +169,45 @@ class Transport:
                 continue
             if msg.get("type") == "response":
                 with self._lock:
-                    cb = self._pending.pop(msg.get("id"), None)
+                    rid = msg.get("id")
+                    cb = self._pending.pop(rid, None) if isinstance(rid, int) else None
                 if cb is not None:
-                    cb(msg)
+                    self._call(cb, msg)
                 continue
-            self._on_message(msg)
+            self._call(self._on_message, msg)
 
     def _fail_pending(self) -> None:
         with self._lock:
             pending, self._pending = self._pending, {}
         for rid, cb in pending.items():
-            cb(response_error(rid, "offline", OFFLINE_MESSAGE))
+            self._call(cb, response_error(rid, "lost", LOST_MESSAGE))
 
     def _run(self) -> None:
         attempt = 0
         while not self._stopped.is_set():
-            self._on_status("connecting" if attempt == 0 else "reconnecting")
+            self._call(self._on_status, "connecting" if attempt == 0 else "reconnecting")
             proc = self._spawn()
             if proc is not None:
-                result = self._handshake(proc)
-                if result == "ok":
-                    attempt = 0
-                    self._on_status("online")
-                    self._read_loop(proc)
-                with self._lock:
-                    self._online = False
-                    self._proc = None
-                self._fail_pending()
-                self._kill(proc)
+                result = "retry"
+                try:
+                    result = self._handshake(proc)
+                    if result == "ok" and not self._stopped.is_set():
+                        attempt = 0
+                        self._call(self._on_status, "online")
+                        self._read_loop(proc)
+                except Exception:
+                    log.exception("transport connection failed")
+                finally:
+                    with self._lock:
+                        self._online = False
+                        self._proc = None
+                    self._fail_pending()
+                    self._kill(proc)
                 if result == "fatal":
                     break
             if self._stopped.is_set():
                 break
-            self._on_status("reconnecting")
+            self._call(self._on_status, "reconnecting")
             self._stopped.wait(self._backoff[min(attempt, len(self._backoff) - 1)])
             attempt += 1
-        self._on_status("offline")
+        self._call(self._on_status, "offline")

@@ -1,4 +1,4 @@
-"""Fake `bgpt-host serve` for transport tests. argv: <log file> <mode: ok|drop|mismatch|unicode|internal>."""
+"""Fake `bgpt-host serve` for transport tests. argv: <log file> <mode: ok|drop|mismatch|unicode|internal|badid|badhello>."""
 
 import json
 import sys
@@ -22,6 +22,9 @@ for line in sys.stdin:
             send({"type": "response", "id": msg["id"], "ok": False,
                   "error": {"code": "protocol_mismatch", "message": "client protocol 1, host protocol 2"}})
             continue
+        if mode == "badhello":
+            send({"type": "response", "id": msg["id"], "ok": False, "error": "nope"})
+            continue
         send({"type": "response", "id": msg["id"], "ok": True, "host_version": "9.9.9",
               "protocol": 1, "claude_version": "x", "claude_error": None})
         send({"type": "sessions", "sessions": []})
@@ -29,6 +32,9 @@ for line in sys.stdin:
             send({"type": "note", "text": "a\u2028b\u2029c\u0085d"})
     elif msg["type"] == "reply" and mode == "drop":
         sys.exit(0)  # die without answering, like a dropped ssh connection
+    elif mode == "badid":
+        send({"type": "response", "id": [msg["id"]], "ok": True})  # unhashable id
+        send({"type": "response", "id": msg["id"], "ok": True})
     elif mode == "internal":
         send({"type": "response", "id": msg["id"], "ok": False,
               "error": {"code": "internal", "message": "boom"}})
