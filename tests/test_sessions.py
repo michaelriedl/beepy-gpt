@@ -108,12 +108,14 @@ def test_recent_keeps_running_or_recent_sessions():
               startedAt=ms - (RECENT_SECONDS + 60) * 1000),                         # old, finished
         agent(id="aaaa0004", kind="interactive", startedAt=ms - (RECENT_SECONDS + 60) * 1000),  # old, pid
         agent(id="aaaa0005", pid=None, startedAt=None),                             # unknown age: kept
-        # Old background session with no pid, still blocked on you: Claude Code reports
-        # background sessions without a pid, so its state decides.
+        # Old background session whose process has exited but whose state still says
+        # blocked on a question from weeks ago: hidden, like Claude Code's own views.
         agent(id="aaaa0006", state="blocked", status="", waitingFor="",
               startedAt=ms - 30 * RECENT_SECONDS * 1000),
+        # Old background session with a live process: kept.
+        agent(id="aaaa0007", pid=77, startedAt=ms - 30 * RECENT_SECONDS * 1000),
     ]), now=now)
-    assert [s.id for s in got] == ["aaaa0001", "aaaa0002", "aaaa0004", "aaaa0005", "aaaa0006"]
+    assert [s.id for s in got] == ["aaaa0001", "aaaa0002", "aaaa0004", "aaaa0005", "aaaa0007"]
     assert RECENT_SECONDS == 86400
 
 

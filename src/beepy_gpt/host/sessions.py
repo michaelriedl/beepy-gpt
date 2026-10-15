@@ -99,14 +99,18 @@ def _started_seconds(started_at: int) -> float:
 
 
 def recent(sessions: Iterable[Session], now: Optional[float] = None) -> list[Session]:
-    """Running sessions, plus finished ones started in the last RECENT_SECONDS.
+    """Sessions with a live process, plus others started in the last RECENT_SECONDS.
 
-    A session without a start time is kept: its age is unknown.
+    A background session's process exits once it has idled for a while, but its state
+    stays as it was (often `blocked` on an old question). Like Claude Code's own views,
+    hide those once they are older than RECENT_SECONDS. A session without a start time
+    is kept: its age is unknown.
     """
     now = time.time() if now is None else now
     return [
         s for s in sessions
-        if s.running or not s.started_at or now - _started_seconds(s.started_at) <= RECENT_SECONDS
+        if s.pid is not None or not s.started_at
+        or now - _started_seconds(s.started_at) <= RECENT_SECONDS
     ]
 
 
