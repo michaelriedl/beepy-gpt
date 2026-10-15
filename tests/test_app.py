@@ -121,6 +121,8 @@ def test_pin_asked_before_approval_then_remembered_then_expires(clock):
     app.on_event({"type": "approvals", "approvals": [APPROVAL]})
     keys(app, "a", "y", "y")
     assert req.types() == ["decide", "decide"]
+    app.on_event({"type": "approvals", "approvals": []})
+    app.on_event({"type": "approvals", "approvals": [APPROVAL]})
     clock.sleep(120)
     keys(app, "a")
     assert app.view.screen == "pin"
