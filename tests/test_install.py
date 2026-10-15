@@ -1,13 +1,17 @@
 import json
+import os
+import stat
 
 import pytest
 
 from beepy_gpt.host.install import (
     hook_installed,
+    is_our_hook,
     load_settings,
     plan_install,
     plan_uninstall,
     run_change,
+    write_settings,
 )
 
 CMD = "/home/dev/.local/bin/bgpt-host hook"
@@ -85,3 +89,62 @@ def test_run_change_broken_file(tmp_path):
     path = tmp_path / "settings.json"
     path.write_text("{oops")
     assert run_change(path, lambda s: s, lambda d: True, lambda m: None) == 1
+
+
+def test_lookalike_hook_is_not_ours():
+    def hook(cmd):
+        return {"type": "command", "command": cmd}
+
+    assert not is_our_hook(hook("/home/bgpt-host-tools/x hook"))
+    assert not is_our_hook(hook("/opt/other hook --bgpt-host"))
+    assert not is_our_hook(hook("bgpt-host hooks"))
+    assert not is_our_hook({"type": "http", "command": "bgpt-host hook"})
+    assert is_our_hook(hook(CMD))
+    assert is_our_hook(hook("python3 -m beepy_gpt.host.cli hook"))
+
+
+def test_lookalike_hook_survives_uninstall():
+    foreign = {"matcher": "*", "hooks": [{"type": "command", "command": "/home/bgpt-host-tools/x hook"}]}
+    s = plan_install({"hooks": {"PermissionRequest": [foreign]}}, CMD, 630)
+    assert plan_uninstall(s)["hooks"]["PermissionRequest"] == [foreign]
+
+
+def test_uninstall_without_our_hook_is_unchanged():
+    empty_foreign = {"hooks": {"PermissionRequest": [{"matcher": "Bash", "hooks": []}], "Stop": []}}
+    assert plan_uninstall(empty_foreign) == empty_foreign
+    assert plan_uninstall({"hooks": {}}) == {"hooks": {}}
+
+
+def test_write_settings_keeps_symlink(tmp_path):
+    real = tmp_path / "real.json"
+    real.write_text(json.dumps({"theme": "dark"}))
+    link = tmp_path / "settings.json"
+    link.symlink_to(real)
+    write_settings(link, {"theme": "light"})
+    assert link.is_symlink()
+    assert json.loads(real.read_text()) == {"theme": "light"}
+
+
+def test_write_settings_preserves_mode(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text("{}")
+    os.chmod(path, 0o600)
+    write_settings(path, {"theme": "dark"})
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert json.loads(path.read_text()) == {"theme": "dark"}
+
+
+def test_two_writes_keep_both_backups(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"n": 0}))
+    first = write_settings(path, {"n": 1})
+    second = write_settings(path, {"n": 2})
+    assert first != second
+    assert json.loads(first.read_text()) == {"n": 0}
+    assert json.loads(second.read_text()) == {"n": 1}
+
+
+def test_dump_keeps_non_ascii(tmp_path):
+    path = tmp_path / "settings.json"
+    write_settings(path, {"name": "café"})
+    assert "café" in path.read_text(encoding="utf-8")

@@ -8,6 +8,7 @@ import json
 import os
 import shlex
 import shutil
+import stat
 import sys
 import time
 from pathlib import Path
@@ -20,9 +21,6 @@ def default_settings_path() -> Path:
     return claude_home() / "settings.json"
 
 
-_MARKERS = ("bgpt-host", "beepy_gpt.host.cli")
-
-
 def hook_command() -> str:
     exe = shutil.which("bgpt-host")
     if exe:
@@ -33,8 +31,17 @@ def hook_command() -> str:
 def is_our_hook(h: object) -> bool:
     if not isinstance(h, dict) or h.get("type") != "command":
         return False
-    cmd = str(h.get("command", ""))
-    return any(m in cmd for m in _MARKERS) and cmd.split()[-1:] == ["hook"]
+    try:
+        tokens = shlex.split(str(h.get("command", "")))
+    except ValueError:
+        return False
+    if not tokens or tokens[-1] != "hook":
+        return False
+    if os.path.basename(tokens[0]) == "bgpt-host":
+        return True
+    return any(
+        tokens[i] == "-m" and tokens[i + 1] == "beepy_gpt.host.cli" for i in range(len(tokens) - 1)
+    )
 
 
 def _groups(settings: dict) -> list:
@@ -62,6 +69,8 @@ def plan_install(settings: dict, command: str, timeout: int) -> dict:
 
 def plan_uninstall(settings: dict) -> dict:
     new = copy.deepcopy(settings)
+    if not hook_installed(settings):
+        return new
     hooks = new.get("hooks")
     if not isinstance(hooks, dict) or not isinstance(hooks.get("PermissionRequest"), list):
         return new
@@ -91,7 +100,7 @@ def load_settings(path: Path) -> dict:
 
 
 def _dump(d: dict) -> str:
-    return json.dumps(d, indent=2) + "\n"
+    return json.dumps(d, indent=2, ensure_ascii=False) + "\n"
 
 
 def render_diff(old: dict, new: dict, path: Path) -> str:
@@ -102,15 +111,31 @@ def render_diff(old: dict, new: dict, path: Path) -> str:
     )
 
 
+def _backup_path(target: Path) -> Path:
+    base = f"{target.name}.bgpt-backup-{time.strftime('%Y%m%d%H%M%S')}"
+    candidate = target.with_name(base)
+    n = 1
+    while candidate.exists():
+        candidate = target.with_name(f"{base}-{n}")
+        n += 1
+    return candidate
+
+
 def write_settings(path: Path, new: dict) -> Optional[Path]:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    # Follow symlinks so the link survives and the real file is updated.
+    target = Path(os.path.realpath(path))
+    target.parent.mkdir(parents=True, exist_ok=True)
     backup = None
-    if path.exists():
-        backup = path.with_name(f"{path.name}.bgpt-backup-{time.strftime('%Y%m%d%H%M%S')}")
-        shutil.copy2(path, backup)
-    tmp = path.with_name(f".{path.name}.bgpt-tmp")
+    mode = None
+    if target.exists():
+        backup = _backup_path(target)
+        shutil.copy2(target, backup)
+        mode = stat.S_IMODE(target.stat().st_mode)
+    tmp = target.with_name(f".{target.name}.bgpt-tmp")
     tmp.write_text(_dump(new), encoding="utf-8")
-    os.replace(tmp, path)
+    if mode is not None:
+        os.chmod(tmp, mode)
+    os.replace(tmp, target)
     return backup
 
 
