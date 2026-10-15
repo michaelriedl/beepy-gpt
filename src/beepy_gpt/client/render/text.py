@@ -7,6 +7,7 @@ import textwrap
 _ASCII = str.maketrans({
     "●": "*", "○": "o", "✕": "x", "▶": ">", "✓": "+", "✗": "x", "…": "~", "─": "-",
     "▂": "#", "▄": "#", "▆": "#", "·": "-", "▏": "|", "↵": "<", "↑": "^", "↓": "v",
+    "—": "-", "–": "-", "‘": "'", "’": "'", "“": '"', "”": '"',
 })
 
 
@@ -28,6 +29,8 @@ def chunks(text: str, width: int) -> list[str]:
 
 
 def fit(text: str, width: int) -> str:
+    if width <= 0:
+        return ""
     return text.ljust(width) if len(text) <= width else text[: width - 1] + "…"
 
 

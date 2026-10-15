@@ -55,3 +55,41 @@ def test_chunks_and_fit():
 
 def test_to_ascii():
     assert to_ascii("─▂▄▆…") == "-###~"
+
+
+def test_combining_marks_and_variation_selectors_keep_alignment():
+    g = Grid(cols=4, rows=1)
+    g.put(0, 0, "á️b")
+    assert g.row_text(0) == "a??b"
+
+
+def test_lone_surrogate_and_line_separators_are_replaced():
+    g = Grid(cols=4, rows=1)
+    g.put(0, 0, "\ud800")
+    assert g.row_text(0)[0] == "?"
+    assert g.row_text(0).encode("utf-8")
+    g.put(0, 1, "a b")
+    assert g.row_text(0) == "?a?b"
+
+
+def test_snapshot_keeps_cells_with_separators():
+    g = Grid(cols=5, rows=1)
+    g.put(0, 0, "a b")
+    assert g.snapshot().split("\n")[0] == "a?b"
+
+
+def test_bottom_right_cell_writable():
+    g = Grid()
+    assert g.put(29, 49, "x") == 50
+    assert g.row_text(29)[49] == "x"
+
+
+def test_to_ascii_dashes_and_quotes():
+    assert to_ascii("a—b") == "a-b"
+    assert to_ascii("a–b") == "a-b"
+    assert to_ascii("‘x’ “y”") == "'x' \"y\""
+
+
+def test_fit_zero_width():
+    assert fit("abc", 0) == ""
+    assert fit("abc", -1) == ""

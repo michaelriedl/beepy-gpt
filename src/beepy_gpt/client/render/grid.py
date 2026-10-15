@@ -9,6 +9,8 @@ from beepy_gpt.client.render.text import to_ascii
 NORMAL, BOLD, REVERSE = 0, 1, 2
 _ALLOWED = BOLD | REVERSE
 COLS, ROWS = 50, 30
+# Control, format, marks (zero-width), surrogates, private use, unassigned, line/paragraph separators.
+_UNSAFE_CATEGORIES = frozenset(("Cc", "Cf", "Mn", "Me", "Mc", "Cs", "Co", "Cn", "Zl", "Zp"))
 _SNAP = {NORMAL: " ", BOLD: "b", REVERSE: "r", BOLD | REVERSE: "B"}
 
 
@@ -19,7 +21,9 @@ class MonochromeError(ValueError):
 def safe_char(ch: str) -> str:
     if len(ch) != 1 or ord(ch) > 0xFFFF:
         return "?"
-    if unicodedata.east_asian_width(ch) in ("W", "F") or unicodedata.category(ch) in ("Cc", "Cf"):
+    if unicodedata.east_asian_width(ch) in ("W", "F"):
+        return "?"
+    if unicodedata.category(ch) in _UNSAFE_CATEGORIES:
         return "?"
     return ch
 
@@ -68,6 +72,6 @@ class Grid:
         return out
 
     def snapshot(self) -> str:
-        text = [self.row_text(r).rstrip() for r in range(self.rows)]
-        attrs = ["".join(_SNAP[a] for a in self._at[r]).rstrip() for r in range(self.rows)]
+        text = [self.row_text(r).rstrip(" ") for r in range(self.rows)]
+        attrs = ["".join(_SNAP[a] for a in self._at[r]).rstrip(" ") for r in range(self.rows)]
         return "\n".join(text) + "\n----\n" + "\n".join(attrs)
