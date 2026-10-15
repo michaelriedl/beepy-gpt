@@ -45,19 +45,15 @@ Both parts are stdlib-only Python with no runtime dependencies.
 ## How it works
 
 ```
- Beepy                                    workstation
-+-----------------+   ssh (stdin/stdout)  +--------------------------+
-| bgpt (curses)   | <-------------------> | bgpt-host serve          |
-| battery, LED,   |   JSON lines          |   claude agents --json   |
-| Wi-Fi           |                       |   claude --resume ... --bg|
-+-----------------+                       |   transcripts, approvals |
-                                          +------------+-------------+
-                                                       ^ spool dir
-                                          +------------+-------------+
-                                          | Claude Code              |
-                                          |  PermissionRequest hook  |
-                                          |  = bgpt-host hook        |
-                                          +--------------------------+
+Beepy (bgpt)                                    Workstation (bgpt-host)
++------------------------+   ssh <target>      +------------------------------+
+| curses UI              |   bgpt-host serve   | serve (JSON-lines loop)      |
+| state (pure reducer)   |<------------------->|  +- sessions   -> claude     |
+| transport (ssh proc)   |  JSON lines, stdio  |  +- transcripts -> *.jsonl   |
+| device (battery, LED)  |                     |  +- actions  -> stop/resume  |
+| wifi (nmcli/wpa_cli)   |                     |  +- approvals -> spool dir   |
++------------------------+                     | hook <- PermissionRequest    |
+                                               +------------------------------+
 ```
 
 There is no daemon and no open port. The client starts `bgpt-host serve` over SSH, so SSH does
@@ -82,9 +78,9 @@ bgpt-host doctor
 
 `install-hook` keeps symlinks and file modes of `settings.json`, keeps a unique backup of the old
 file, and only ever touches its own hook entry. The hook timeout is set to
-`hook_timeout_seconds + 30` so Claude Code never kills it before it has answered.
+the host's hook timeout plus 30 seconds (`[hook] timeout_seconds` in `~/.config/beepy-gpt/host.ini`, default 600) so Claude Code never kills it before it has answered.
 
-Device:
+Device (set `[ui] ascii = true` in `client.ini` if the font lacks box-drawing characters or signal bars):
 
 ```
 sudo apt install pipx      # or python3-pip
@@ -119,13 +115,14 @@ The device only needs the arrow keys, Enter, Esc (Back), Backspace and printable
 
 | Screen | Keys |
 | --- | --- |
-| Sessions | Up/Down select, Enter open, `r` reply, `a` approve, `g` refresh, `w` Wi-Fi, `q` quit |
+| Sessions | Up/Down select, Enter open, `r` reply, `a` approve, `g` refresh, `q` quit (Esc does not quit here) |
 | Session detail | Up/Down scroll, `r` reply, `a` approve, `G` jump to latest, Esc back |
 | Approval | `y` allow, `n` deny (press twice to confirm), Enter deny with a note, Up/Down scroll, Esc back |
 | Reply / deny note | type text, Enter send (confirm with a second Enter for a reply), Esc cancel |
 | PIN | type digits, Enter ok, Esc cancel |
 | Wi-Fi | Up/Down select, Enter join, `s` scan, `f` forget, `h` hidden network, Esc back |
 | Wi-Fi password | type, Enter join, Up show/hide, Esc back |
+| Any screen except text entry (reply, password, PIN) | `w` opens the Wi-Fi menu, also when offline |
 | Wi-Fi result | `o` open a captive-portal login page, Esc back |
 
 ## Battery and LED
@@ -136,7 +133,7 @@ something needs you.
 
 ## Wi-Fi
 
-Press `w` on the sessions screen to scan, join, forget and add hidden networks. Both NetworkManager
+Press `w` on any screen except text entry (reply, password, PIN), even when offline, to scan, join, forget and add hidden networks. Both NetworkManager
 and wpa_supplicant are supported and detected automatically. If joining is refused for permission
 reasons, add your user to the `netdev` group (`sudo usermod -aG netdev $USER`, then log in again),
 or for NetworkManager add a polkit rule that lets your user manage network connections. Captive
