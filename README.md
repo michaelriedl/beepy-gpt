@@ -82,7 +82,9 @@ bgpt-host doctor
 file, and only ever touches its own hook entry. The hook timeout is set to
 the host's hook timeout plus 30 seconds (`[hook] timeout_seconds` in `~/.config/beepy-gpt/host.ini`, default 600) so Claude Code never kills it before it has answered.
 
-Device (set `[ui] ascii = true` in `client.ini` if the font lacks box-drawing characters or signal bars):
+Device. On the Linux console, `bgpt` reads which characters the console font has and draws
+ASCII stand-ins for the rest (`bgpt doctor` lists them); set `[ui] ascii = true` in `client.ini`
+to use ASCII everywhere:
 
 ```
 sudo apt install pipx      # or python3-pip
@@ -93,6 +95,9 @@ $EDITOR ~/.config/beepy-gpt/client.ini                        # set ssh_target =
 bgpt doctor
 bgpt
 ```
+
+pipx puts `bgpt` in `~/.local/bin`, which `~/.profile` adds to `PATH` only if it existed when you
+logged in: if `bgpt` is not found right after installing, log in again or run `. ~/.profile`.
 
 SSH runs `bgpt-host` in a non-login shell, which may not have `~/.local/bin` (where pipx puts it)
 on its `PATH`. If `bgpt doctor` reports that the host command was not found, set
@@ -138,6 +143,18 @@ The device only needs the arrow keys, Enter, Esc (Back), Backspace and printable
 The battery percentage is the firmware's own percentage, smoothed over about a minute. The voltage
 only feeds the `+` after it, a best-guess charging indicator based on the voltage rising. The LED flashes until you press a key when
 something needs you.
+
+The firmware's LED files are writable only by root. To let the `gpio` group (which the default
+user is in) drive the LED, install the two rules from `config/` and apply them once:
+
+```
+sudo cp config/beepy-gpt-led.tmpfiles.conf /etc/tmpfiles.d/beepy-gpt-led.conf
+sudo cp config/90-beepy-gpt-led.rules /etc/udev/rules.d/
+sudo systemd-tmpfiles --create /etc/tmpfiles.d/beepy-gpt-led.conf
+```
+
+The udev rule re-applies the permissions whenever the keyboard driver loads, which can happen after
+the boot-time tmpfiles run. `bgpt doctor` reports whether the LED is writable.
 
 ## Wi-Fi
 

@@ -1,0 +1,2 @@
+# beepy-gpt: re-apply LED permissions once the firmware driver has bound.
+ACTION=="bind", SUBSYSTEM=="i2c", DRIVER=="beepy-kbd", RUN+="/usr/bin/systemd-tmpfiles --create /etc/tmpfiles.d/beepy-gpt-led.conf"
