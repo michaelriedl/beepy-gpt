@@ -54,6 +54,22 @@ def test_connect_args_and_password_not_in_error():
                              "password", "hunter22", "hidden", "yes"]
 
 
+def test_password_is_redacted_from_error_message():
+    run = FakeRun()
+    run.on(["nmcli", "device", "wifi", "connect"], returncode=2,
+           stderr="Error: invalid extra argument 'hunter22'.")
+    with pytest.raises(WifiError) as e:
+        NmBackend(run=run).connect("Cafe", "hunter22")
+    assert "hunter22" not in e.value.message and "***" in e.value.message
+
+
+def test_nmcli_runs_with_c_locale():
+    run = FakeRun()
+    run.on(["nmcli", "connection", "delete"], stdout="deleted")
+    NmBackend(run=run).forget("HomeNet")
+    assert run.envs[-1]["LC_ALL"] == "C"
+
+
 @pytest.mark.parametrize("stderr,code", [
     ("Error: Not authorized to control networking.", "permission"),
     ("Error: No network with SSID 'X' found.", "not_found"),

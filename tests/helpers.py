@@ -35,6 +35,7 @@ class FakeRun:
 
     def __init__(self):
         self.calls = []
+        self.envs = []
         self.rules = []
 
     def on(self, prefix, stdout="", returncode=0, stderr=""):
@@ -43,6 +44,7 @@ class FakeRun:
     def __call__(self, argv, **kwargs):
         argv = list(argv)
         self.calls.append(argv)
+        self.envs.append(kwargs.get("env"))
         for prefix, rc, out, err in reversed(self.rules):
             if argv[: len(prefix)] == prefix:
                 return subprocess.CompletedProcess(argv, rc, out, err)

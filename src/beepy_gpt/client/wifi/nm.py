@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from typing import Any, Callable, Optional
 
@@ -55,7 +56,8 @@ class NmBackend:
 
     def _nm(self, *args: str, timeout: float = 30) -> str:
         try:
-            p = self._run(["nmcli", *args], capture_output=True, text=True, timeout=timeout)
+            p = self._run(["nmcli", *args], capture_output=True, text=True, timeout=timeout,
+                          env={**os.environ, "LC_ALL": "C"})
         except subprocess.TimeoutExpired:
             raise WifiError("timeout", "nmcli timed out") from None
         except OSError as e:
@@ -99,7 +101,13 @@ class NmBackend:
             args += ["password", password]
         if hidden:
             args += ["hidden", "yes"]
-        self._nm(*args, timeout=90)
+        try:
+            self._nm(*args, timeout=90)
+        except WifiError as e:
+            # nmcli can echo argv values back in its errors; never let the password through.
+            if password:
+                raise WifiError(e.code, e.message.replace(password, "***")) from None
+            raise
 
     def forget(self, ssid: str) -> None:
         self._nm("connection", "delete", "id", ssid)
