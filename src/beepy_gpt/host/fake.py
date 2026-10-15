@@ -18,6 +18,7 @@ def _sid(short: str) -> str:
 
 
 def _rec(short, kind, name, cwd, state, status, waiting, pid, started):
+    # Like the real CLI, only interactive sessions carry a pid.
     return {
         "pid": pid, "id": short if kind == "background" else None,
         # epoch ms like the real CLI; `started` only orders the sessions (minutes ago)
@@ -47,11 +48,11 @@ class FakeClaude:
             d.mkdir(parents=True, exist_ok=True)
             cwds[project] = str(d)
         self._sessions = {
-            "aaaa1111": _rec("aaaa1111", "background", "Refactor parser", cwds["parser"], "blocked", "waiting", "permission prompt", 101, 5),
-            "bbbb2222": _rec("bbbb2222", "background", "train sweep", cwds["orbit"], "working", None, None, 102, 4),
+            "aaaa1111": _rec("aaaa1111", "background", "Refactor parser", cwds["parser"], "blocked", "waiting", "permission prompt", None, 5),
+            "bbbb2222": _rec("bbbb2222", "background", "train sweep", cwds["orbit"], "working", None, None, None, 4),
             "cccc3333": _rec("cccc3333", "interactive", "notes-app-12", cwds["notes"], None, "idle", None, 103, 3),
-            "dddd4444": _rec("dddd4444", "background", "fix loader", cwds["fonts"], "done", "idle", None, 104, 2),
-            "eeee5555": _rec("eeee5555", "background", "fork demo", cwds["demo"], "blocked", "idle", None, 105, 1),
+            "dddd4444": _rec("dddd4444", "background", "fix loader", cwds["fonts"], "done", "idle", None, None, 2),
+            "eeee5555": _rec("eeee5555", "background", "fork demo", cwds["demo"], "blocked", "idle", None, None, 1),
         }
         for short in self._sessions:
             self._write(short, [
@@ -97,7 +98,7 @@ class FakeClaude:
         if short == "eeee5555":
             return ResumeResult(short_id="f0f0f0f0", forked_as="f0f0f0f0")
         self._write(short, [_user(text.strip()), _assistant({"type": "text", "text": f"(fake) received: {text.strip()}"})])
-        rec.update(pid=4242, state="done", status="idle", waitingFor=None)
+        rec.update(state="done", status="idle", waitingFor=None)
         return ResumeResult(short_id=short, forked_as=None)
 
     def version(self) -> str:
