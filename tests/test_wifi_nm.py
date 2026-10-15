@@ -92,10 +92,20 @@ def test_forget():
 
 def test_detect_prefers_running_networkmanager():
     run = FakeRun()
-    run.on(["nmcli", "-t", "-f", "RUNNING", "general"], stdout="running\n")
+    run.on(["/usr/bin/nmcli", "-t", "-f", "RUNNING", "general"], stdout="running\n")
     b = detect_backend(run=run, which=lambda name: f"/usr/bin/{name}")
     assert b.name == "networkmanager"
+    assert b._tool == "/usr/bin/nmcli"
+
+
+def test_detect_finds_wpa_cli_outside_path():
+    # Raspberry Pi OS: wpa_cli is in /usr/sbin, which a normal user's PATH leaves out.
+    run = FakeRun()
+    run.on(["/usr/sbin/wpa_cli", "-i", "wlan0", "ping"], stdout="PONG\n")
+    b = detect_backend(run=run, which=lambda name: None, is_file=lambda path: path == "/usr/sbin/wpa_cli")
+    assert b.name == "wpa_supplicant"
+    assert b._tool == "/usr/sbin/wpa_cli"
 
 
 def test_detect_none():
-    assert detect_backend(run=FakeRun(), which=lambda name: None) is None
+    assert detect_backend(run=FakeRun(), which=lambda name: None, is_file=lambda path: False) is None

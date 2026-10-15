@@ -62,15 +62,17 @@ class WpaBackend:
         run: Callable[..., Any] = subprocess.run,
         sleep: Callable[[float], None] = time.sleep,
         connect_timeout: float = 20.0,
+        tool: str = "wpa_cli",
     ):
         self.interface = interface
+        self._tool = tool
         self._run = run
         self._sleep = sleep
         self._connect_timeout = connect_timeout
 
     def _w(self, *args: str) -> str:
         try:
-            p = self._run(["wpa_cli", "-i", self.interface, *args], capture_output=True, text=True, timeout=15)
+            p = self._run([self._tool, "-i", self.interface, *args], capture_output=True, text=True, timeout=15)
         except subprocess.TimeoutExpired:
             raise WifiError("timeout", "wpa_cli timed out") from None
         except OSError as e:

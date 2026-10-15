@@ -50,13 +50,15 @@ def _int(s: str) -> int:
 class NmBackend:
     name = "networkmanager"
 
-    def __init__(self, interface: str = "wlan0", run: Callable[..., Any] = subprocess.run):
+    def __init__(self, interface: str = "wlan0", run: Callable[..., Any] = subprocess.run,
+                 tool: str = "nmcli"):
         self.interface = interface
         self._run = run
+        self._tool = tool
 
     def _nm(self, *args: str, timeout: float = 30) -> str:
         try:
-            p = self._run(["nmcli", *args], capture_output=True, text=True, timeout=timeout,
+            p = self._run([self._tool, *args], capture_output=True, text=True, timeout=timeout,
                           env={**os.environ, "LC_ALL": "C"})
         except subprocess.TimeoutExpired:
             raise WifiError("timeout", "nmcli timed out") from None

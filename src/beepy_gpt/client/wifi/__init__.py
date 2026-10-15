@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -56,23 +57,45 @@ def sort_networks(nets: list[Network]) -> list[Network]:
     return sorted(best.values(), key=lambda n: (not n.active, -n.signal, n.ssid))
 
 
+# A normal user's PATH on Raspberry Pi OS leaves out the sbin directories, where wpa_cli lives.
+_SBIN_DIRS = ("/usr/sbin", "/sbin")
+
+
+def find_tool(
+    name: str,
+    which: Callable[[str], Optional[str]] = shutil.which,
+    is_file: Callable[[str], bool] = os.path.isfile,
+) -> Optional[str]:
+    found = which(name)
+    if found:
+        return found
+    for d in _SBIN_DIRS:
+        path = os.path.join(d, name)
+        if is_file(path):
+            return path
+    return None
+
+
 def detect_backend(
     interface: str = "wlan0",
     run: Callable[..., Any] = subprocess.run,
     which: Callable[[str], Optional[str]] = shutil.which,
+    is_file: Callable[[str], bool] = os.path.isfile,
 ):
     from beepy_gpt.client.wifi.nm import NmBackend
     from beepy_gpt.client.wifi.wpa import WpaBackend
 
     try:
-        if which("nmcli"):
-            p = run(["nmcli", "-t", "-f", "RUNNING", "general"], capture_output=True, text=True, timeout=10)
+        nmcli = find_tool("nmcli", which, is_file)
+        if nmcli:
+            p = run([nmcli, "-t", "-f", "RUNNING", "general"], capture_output=True, text=True, timeout=10)
             if p.returncode == 0 and p.stdout.strip() == "running":
-                return NmBackend(interface, run=run)
-        if which("wpa_cli"):
-            p = run(["wpa_cli", "-i", interface, "ping"], capture_output=True, text=True, timeout=10)
+                return NmBackend(interface, run=run, tool=nmcli)
+        wpa_cli = find_tool("wpa_cli", which, is_file)
+        if wpa_cli:
+            p = run([wpa_cli, "-i", interface, "ping"], capture_output=True, text=True, timeout=10)
             if "PONG" in (p.stdout or ""):
-                return WpaBackend(interface, run=run)
+                return WpaBackend(interface, run=run, tool=wpa_cli)
     except (OSError, subprocess.SubprocessError):
         return None
     return None
