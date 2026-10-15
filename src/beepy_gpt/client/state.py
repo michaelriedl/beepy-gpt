@@ -1,11 +1,37 @@
-"""UI-independent client state and its pure reducer."""
+"""UI-independent client state and its pure reducer.
+
+reduce() never raises: the client loop feeds it wire events from a host that
+may be a different version, so malformed input is dropped or defaulted.
+"""
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, replace
 from typing import Any, Optional
 
 MAX_FEED = 500
+
+
+def _finite(v: Any) -> Optional[float]:
+    """float(v) if it is a finite number, else None."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return f if math.isfinite(f) else None
+
+
+def _dicts(v: Any) -> tuple:
+    """The dict elements of a list-valued wire field; anything else gives ()."""
+    if not isinstance(v, (list, tuple)):
+        return ()
+    return tuple(d for d in v if isinstance(d, dict))
+
+
+def _items(v: Any) -> tuple:
+    """A list-valued wire field as a tuple; anything else gives ()."""
+    return tuple(v) if isinstance(v, (list, tuple)) else ()
 
 
 @dataclass(frozen=True)
@@ -43,7 +69,7 @@ class ApprovalView:
     tool_name: str
     tool_input: dict
     description: str
-    expires_at: float
+    expires_at: Optional[float]
 
     @staticmethod
     def from_wire(d: dict) -> "ApprovalView":
@@ -51,8 +77,8 @@ class ApprovalView:
         return ApprovalView(
             request_id=str(d.get("request_id", "")), session_id=str(d.get("session_id", "")),
             project=str(d.get("project", "")), session_name=str(d.get("session_name", "")),
-            tool_name=str(d.get("tool_name", "")), tool_input=ti if isinstance(ti, dict) else {},
-            description=str(d.get("description", "")), expires_at=float(d.get("expires_at") or 0),
+            tool_name=str(d.get("tool_name", "")), tool_input=dict(ti) if isinstance(ti, dict) else {},
+            description=str(d.get("description", "")), expires_at=_finite(d.get("expires_at")),
         )
 
 
@@ -99,8 +125,8 @@ class AppState:
 
     @property
     def need_ids(self) -> frozenset:
-        ids = {s.session_id for s in self.sessions if s.needs_you}
-        return frozenset(ids | {a.session_id for a in self.approvals})
+        ids = {s.session_id for s in self.sessions if s.needs_you and s.session_id}
+        return frozenset(ids | {a.session_id for a in self.approvals if a.session_id})
 
     @property
     def need_count(self) -> int:
@@ -117,19 +143,24 @@ class AppState:
 
 
 def _lines(events: Any) -> tuple:
-    return tuple(FeedLine.from_wire(e) for e in (events or []) if isinstance(e, dict))
+    return tuple(FeedLine.from_wire(e) for e in _dicts(events))
 
 
 def reduce(state: AppState, ev: dict) -> AppState:
+    if not isinstance(ev, dict):
+        return state
     t = ev.get("type")
     if t == "sessions":
-        return replace(state, sessions=tuple(SessionView.from_wire(d) for d in ev.get("sessions", [])))
+        return replace(state, sessions=tuple(SessionView.from_wire(d) for d in _dicts(ev.get("sessions"))))
     if t == "approvals":
-        return replace(state, approvals=tuple(ApprovalView.from_wire(d) for d in ev.get("approvals", [])))
+        return replace(state, approvals=tuple(ApprovalView.from_wire(d) for d in _dicts(ev.get("approvals"))))
     if t == "feed":
-        return replace(state, feed_session=ev.get("session_id"), feed=_lines(ev.get("events"))[-MAX_FEED:])
+        sid = ev.get("session_id")
+        if not sid:
+            return state
+        return replace(state, feed_session=sid, feed=_lines(ev.get("events"))[-MAX_FEED:])
     if t == "feed_append":
-        if ev.get("session_id") != state.feed_session:
+        if state.feed_session is None or ev.get("session_id") != state.feed_session:
             return state
         return replace(state, feed=(state.feed + _lines(ev.get("events")))[-MAX_FEED:])
     if t == "feed_close":
@@ -145,13 +176,14 @@ def reduce(state: AppState, ev: dict) -> AppState:
     if t == "fatal":
         return replace(state, fatal=str(ev.get("message", "")))
     if t == "battery":
-        if ev.get("percent") is None:
+        pct = _finite(ev.get("percent"))
+        if pct is None:
             return replace(state, battery=None)
-        return replace(state, battery=BatteryView(int(ev["percent"]), bool(ev.get("charging")), bool(ev.get("low"))))
+        return replace(state, battery=BatteryView(int(pct), bool(ev.get("charging")), bool(ev.get("low"))))
     if t == "wifi_status":
         return replace(state, wifi=ev.get("status"))
     if t == "wifi_networks":
-        return replace(state, networks=tuple(ev.get("networks", [])), wifi_busy=False, wifi_error=None)
+        return replace(state, networks=_items(ev.get("networks")), wifi_busy=False, wifi_error=None)
     if t == "wifi_busy":
         return replace(state, wifi_busy=True, wifi_error=None)
     if t == "wifi_error":
