@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 
 def agent(
     id="aaaa1111",
@@ -27,3 +28,22 @@ def agent(
         "waitingFor": waitingFor,
     }
     return {k: v for k, v in rec.items() if v is not None}
+
+
+class FakeRun:
+    """Stands in for subprocess.run: answers by argv prefix, records every call."""
+
+    def __init__(self):
+        self.calls = []
+        self.rules = []
+
+    def on(self, prefix, stdout="", returncode=0, stderr=""):
+        self.rules.append((list(prefix), returncode, stdout, stderr))
+
+    def __call__(self, argv, **kwargs):
+        argv = list(argv)
+        self.calls.append(argv)
+        for prefix, rc, out, err in reversed(self.rules):
+            if argv[: len(prefix)] == prefix:
+                return subprocess.CompletedProcess(argv, rc, out, err)
+        return subprocess.CompletedProcess(argv, 1, "", f"FakeRun: unexpected {argv}")
