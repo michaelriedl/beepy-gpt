@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from beepy_gpt.host.claude_cli import ClaudeError
@@ -39,14 +40,24 @@ def _lookup(backend: Any, ident: str):
 
 def reply(backend: Any, ident: str, text: str) -> dict:
     body = prepare_text(text)
+    stopped = False
     try:
         s = _lookup(backend, ident)
         if s.running:
-            # Re-check right before stopping so a session that just started working
-            # is never interrupted.
+            # Re-check right before stopping: this narrows the race window, it does not
+            # eliminate it.
             s = _lookup(backend, s.session_id)
-            backend.stop(s.id)
+            if s.running:
+                # Never stop a session we cannot resume afterwards.
+                if not os.path.isdir(s.cwd):
+                    raise ActionError("claude_error", f"working directory is missing: {s.cwd}")
+                backend.stop(s.id)
+                stopped = True
         result = backend.resume_bg(s.session_id, body, cwd=s.cwd)
     except ClaudeError as e:
+        if stopped:
+            raise ActionError(
+                "claude_error", f"session was stopped but the reply was not sent: {e}"
+            ) from None
         raise ActionError("claude_error", str(e)) from None
     return {"forked_as": result.forked_as}

@@ -94,3 +94,41 @@ def test_prepare_text():
     assert prepare_text("-x") == " -x"
     with pytest.raises(ActionError):
         prepare_text("   ")
+
+
+def test_running_session_with_missing_cwd_is_not_stopped(stub_claude, tmp_path):
+    stub_claude.set_agents([agent(state="blocked", status="idle", waitingFor=None, cwd=str(tmp_path / "gone"))])
+    with pytest.raises(ActionError) as e:
+        reply(stub_claude.cli(), "aaaa1111", "hi")
+    assert e.value.code == "claude_error" and "working directory is missing" in e.value.message
+    assert ["stop", "aaaa1111"] not in argvs(stub_claude)
+
+
+def test_session_vanishing_on_recheck_is_not_stopped(stub_claude):
+    stub_claude.set_agents([agent(state="blocked", status="idle", waitingFor=None)], [])
+    with pytest.raises(ActionError) as e:
+        reply(stub_claude.cli(), "aaaa1111", "hi")
+    assert e.value.code == "unknown_session"
+    assert ["stop", "aaaa1111"] not in argvs(stub_claude)
+
+
+def test_resume_failure_after_stop_says_session_was_stopped(stub_claude, tmp_path):
+    from beepy_gpt.host.claude_cli import ClaudeError
+
+    stub_claude.set_agents([agent(state="blocked", status="idle", waitingFor=None, cwd=str(tmp_path))])
+    real = stub_claude.cli()
+
+    class Backend:
+        agents = staticmethod(real.agents)
+        stop = staticmethod(real.stop)
+
+        @staticmethod
+        def resume_bg(*a, **k):
+            raise ClaudeError("claude --resume failed: boom")
+
+    with pytest.raises(ActionError) as e:
+        reply(Backend, "aaaa1111", "hi")
+    assert e.value.code == "claude_error"
+    assert e.value.message.startswith("session was stopped but the reply was not sent: ")
+    assert "boom" in e.value.message
+    assert ["stop", "aaaa1111"] in argvs(stub_claude)
