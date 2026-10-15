@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -34,11 +35,14 @@ class ClaudeCLI:
         self._run = run
 
     def _call(self, args: list[str], cwd: Optional[str] = None, combine: bool = False) -> str:
+        if cwd is not None and not os.path.isdir(cwd):
+            raise ClaudeError(f"working directory is missing: {cwd}")
         try:
             p = self._run(
                 self._exe + args,
                 capture_output=True,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=self._timeout,
                 cwd=cwd,
                 stdin=subprocess.DEVNULL,
@@ -47,6 +51,8 @@ class ClaudeCLI:
             raise ClaudeError("claude not found (is Claude Code installed and on PATH?)") from None
         except subprocess.TimeoutExpired:
             raise ClaudeError(f"claude {args[0]} timed out") from None
+        except OSError as e:
+            raise ClaudeError(f"claude {args[0]} could not run: {e.strerror or e}") from None
         if p.returncode != 0:
             lines = (p.stderr or p.stdout or "").strip().splitlines()
             detail = lines[-1] if lines else f"exit {p.returncode}"
@@ -68,13 +74,21 @@ class ClaudeCLI:
 
     def resume_bg(self, session_id: str, text: str, cwd: str) -> ResumeResult:
         # No other flags: any flag on resume makes Claude Code start a copy (spec §2 #4).
+        # Text starting with "-" would be parsed as a CLI option, so refuse it outright.
+        if text.startswith("-"):
+            raise ValueError("reply text must not start with '-'")
         out = self._call(["--resume", session_id, "--bg", text], cwd=cwd, combine=True)
         copy = _COPY_RE.search(out)
         bg = _BG_RE.search(out)
-        return ResumeResult(
-            short_id=bg.group(1) if bg else None,
-            forked_as=copy.group(1) if copy else None,
-        )
+        short_id = bg.group(1) if bg else None
+        forked_as = copy.group(1) if copy else None
+        # Structural fallback: if the backgrounded id is not the session we asked for,
+        # treat it as a fork even when the wording of the copy note has changed.
+        if forked_as is None and short_id is not None:
+            same = session_id.startswith(short_id) or short_id.startswith(session_id)
+            if not same:
+                forked_as = short_id
+        return ResumeResult(short_id=short_id, forked_as=forked_as)
 
     def version(self) -> str:
         return self._call(["--version"]).strip()

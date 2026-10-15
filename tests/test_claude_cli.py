@@ -59,5 +59,34 @@ def test_resume_bg_detects_fork(stub_claude, tmp_path):
     assert res.forked_as == "9ad97bf9"
 
 
+def test_resume_bg_detects_fork_structurally(stub_claude, tmp_path):
+    # No copy note, but the backgrounded id is not the requested session: still a fork.
+    stub_claude.set_resume_output("backgrounded · 9ad97bf9\n")
+    res = stub_claude.cli().resume_bg("aaaa1111-x", "hi", cwd=str(tmp_path))
+    assert res.short_id == "9ad97bf9"
+    assert res.forked_as == "9ad97bf9"
+
+
+def test_resume_bg_dash_led_text_is_refused(stub_claude, tmp_path):
+    with pytest.raises(ValueError, match="must not start with '-'"):
+        stub_claude.cli().resume_bg("aaaa1111-x", "-p", cwd=str(tmp_path))
+    assert stub_claude.calls() == []
+
+
+def test_missing_cwd_is_reported_as_missing_directory(stub_claude, tmp_path):
+    missing = str(tmp_path / "does-not-exist")
+    with pytest.raises(ClaudeError, match="working directory is missing"):
+        stub_claude.cli().resume_bg("aaaa1111-x", "hi", cwd=missing)
+    assert stub_claude.calls() == []
+
+
+def test_os_error_becomes_claude_error():
+    def run(*a, **k):
+        raise PermissionError(13, "Permission denied")
+
+    with pytest.raises(ClaudeError, match="could not run.*Permission denied"):
+        ClaudeCLI(exe=["claude"], run=run).version()
+
+
 def test_version(stub_claude):
     assert stub_claude.cli().version() == "2.1.300 (Claude Code)"
