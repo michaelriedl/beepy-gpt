@@ -1,0 +1,60 @@
+ workstation ●  2 need you wifi▂▄▆ 14:05 BAT 63%+
+──────────────────────────────────────────────────
+parser · Refactor parser
+ ALLOW? $ python -m pytest tests/test_parser.… a ▶
+you: Please work on the parser.
+claude: Sure. Looking at the code first, then I
+  will run the tests and report back.
+$ pytest -q
+  ✓ 12 passed in 1.02s
+· Read /home/dev/projects/parser/README.md
+  ✗ File not found
+  ✗ interrupted
+? unknown entry (widget)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+──────────────────────────────────────────────────
+ ↑↓ scroll  r reply  a approve  G latest  Esc
+----
+bbbbbbbbbbbbbb
+
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

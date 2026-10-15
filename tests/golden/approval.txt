@@ -1,0 +1,60 @@
+ workstation ●  2 need you wifi▂▄▆ 14:05 BAT 63%+
+──────────────────────────────────────────────────
+ ALLOW?  Bash in parser
+session: Refactor parser
+Run the parser tests
+
+$ python -m pytest tests/test_parser.py --maxfail=
+1 -k 'tokenize or parse_header'
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+──────────────────────────────────────────────────
+ y allow  n deny  ↵ deny+note  ↑↓  Esc back
+----
+bbbbbbbbbbbbbb
+
+rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
