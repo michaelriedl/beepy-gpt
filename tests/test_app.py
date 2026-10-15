@@ -295,3 +295,20 @@ def test_led_realerts_after_reconnect(clock):
     app.on_event({"type": "connection", "status": "online"})
     app.on_event({"type": "sessions", "sessions": [S_BLOCKED, S_DONE, S_INTER]})
     assert dev.led == [True, False, True]
+
+
+def test_lost_decision_can_be_redecided_after_reconnect(clock):
+    from beepy_gpt.client.transport import LOST_MESSAGE
+
+    app, req, _ = make(clock)
+    keys(app, "a", "y", "y")
+    req.sent[-1][2]({"type": "response", "ok": False, "error": {"code": "lost", "message": LOST_MESSAGE}})
+    app.on_event({"type": "connection", "status": "reconnecting"})
+    app.on_event({"type": "connection", "status": "online"})
+    app.on_event({"type": "hello", "host_version": "0.1.0", "claude_version": "x", "claude_error": None})
+    app.on_event({"type": "approvals", "approvals": [APPROVAL]})
+    assert req.types().count("decide") == 1  # nothing auto-resent
+    keys(app, "a")
+    assert app.view.screen == "approval"
+    keys(app, "y", "y")
+    assert req.types().count("decide") == 2

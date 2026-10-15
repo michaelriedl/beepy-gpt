@@ -91,6 +91,9 @@ class App:
         self._update_led(prev)
         self._clamp()
         if ev.get("type") == "hello":
+            # The first snapshot after a reconnect is authoritative: a delivered
+            # decision is already absent from it, anything listed is undecided.
+            self._decided.clear()
             self._reopen_feed()
 
     def _reopen_feed(self) -> None:
