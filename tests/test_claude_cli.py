@@ -1,3 +1,4 @@
+import os
 import pytest
 
 from beepy_gpt.host.claude_cli import ClaudeCLI, ClaudeError
@@ -103,3 +104,12 @@ def test_timeout_raises_claude_timeout():
     with pytest.raises(ClaudeTimeout) as e:
         ClaudeCLI(run=run).stop("aaaa1111")
     assert isinstance(e.value, ClaudeError) and "timed out" in str(e.value)
+
+
+def test_find_claude_outside_path():
+    from beepy_gpt.host.claude_cli import find_claude
+
+    assert find_claude(which=lambda n: "/opt/bin/claude") == "/opt/bin/claude"
+    home_bin = os.path.expanduser("~/.local/bin/claude")
+    assert find_claude(which=lambda n: None, is_file=lambda p: p == home_bin) == home_bin
+    assert find_claude(which=lambda n: None, is_file=lambda p: False) == "claude"

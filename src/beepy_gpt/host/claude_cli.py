@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, Sequence
@@ -27,14 +28,33 @@ class ResumeResult:
     forked_as: Optional[str]
 
 
+# Where Claude Code's installers put `claude`. SSH runs bgpt-host in a non-login shell
+# whose PATH usually leaves out ~/.local/bin.
+_INSTALL_PATHS = ("~/.local/bin/claude", "~/.claude/local/claude")
+
+
+def find_claude(
+    which: Callable[[str], Optional[str]] = shutil.which,
+    is_file: Callable[[str], bool] = os.path.isfile,
+) -> str:
+    found = which("claude")
+    if found:
+        return found
+    for candidate in _INSTALL_PATHS:
+        path = os.path.expanduser(candidate)
+        if is_file(path):
+            return path
+    return "claude"  # not found: running it reports "claude not found"
+
+
 class ClaudeCLI:
     def __init__(
         self,
-        exe: Sequence[str] = ("claude",),
+        exe: Optional[Sequence[str]] = None,
         timeout: float = 60.0,
         run: Callable[..., Any] = subprocess.run,
     ):
-        self._exe = list(exe)
+        self._exe = list(exe) if exe is not None else [find_claude()]
         self._timeout = timeout
         self._run = run
 
