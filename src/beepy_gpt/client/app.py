@@ -11,9 +11,10 @@ from datetime import datetime
 from typing import Any, Callable, Optional
 
 from beepy_gpt.client.battery import BatteryTracker
-from beepy_gpt.client.keys import BACK, BACKSPACE, DOWN, ENTER, UP
+from beepy_gpt.client.keys import BACK, BACKSPACE, DOWN, ENTER, UP, beepy_producible
 from beepy_gpt.client.render.grid import Grid
-from beepy_gpt.client.render.screens import TEXT_SCREENS, View, feed_lines, render
+from beepy_gpt.client.render.screens import BODY_ROWS, TEXT_SCREENS, View, approval_lines, feed_lines, render
+from beepy_gpt.client.transport import LOST_MESSAGE
 from beepy_gpt.client.state import AppState, reduce
 from beepy_gpt.client.wifi import PERMISSION_FIX, WifiError
 from beepy_gpt.client.wifi.checks import run_checks
@@ -26,6 +27,17 @@ def _thread(job: Callable[[], None]) -> None:
 
 def _err_text(r: dict) -> str:
     return str((r.get("error") or {}).get("message", "failed"))
+
+
+def _failure_text(prefix: str, r: dict) -> str:
+    """Notice for a failed send. Only "offline" is known not to have been written."""
+    code = (r.get("error") or {}).get("code")
+    if code == "offline":
+        return "not sent: " + _err_text(r)
+    if code == "lost":
+        # Written before the drop: it may have been delivered, so never say "not sent".
+        return f"{prefix}: {LOST_MESSAGE}"
+    return _err_text(r)
 
 
 class App:
@@ -56,6 +68,7 @@ class App:
         self.running = True
         self.external: Optional[list[str]] = None
         self._alerted: set = set()
+        self._decided: set = set()
         self._pin_ok_until = float("-inf")
         self._after_pin: Optional[Callable[[], None]] = None
 
@@ -71,6 +84,10 @@ class App:
                   "charging": self.tracker.charging, "low": self.tracker.low}
         prev = self.state
         self.state = reduce(self.state, ev)
+        if ev.get("type") == "approvals":
+            self._decided &= {a.request_id for a in self.state.approvals}
+        if ev.get("type") == "connection" and self.state.connection != "online":
+            self._alerted = set()
         self._update_led(prev)
         self._clamp()
         if ev.get("type") == "hello":
@@ -141,6 +158,8 @@ class App:
 
     # --- keys -----------------------------------------------------------
     def on_key(self, key: str) -> None:
+        if not beepy_producible(key):
+            return
         if self.cfg.pin and self.clock() < self._pin_ok_until:
             self._pin_ok_until = self.clock() + self.cfg.pin_idle_minutes * 60
         if self.state.notice:
@@ -228,14 +247,7 @@ class App:
                     fork = r.get("forked_as")
                     self._notice("sent" + (f"; Claude continued it as a copy ({fork})" if fork else ""))
                 else:
-                    code = (r.get("error") or {}).get("code")
-                    if code == "offline":
-                        self._notice("not sent: " + _err_text(r))
-                    elif code == "lost":
-                        # Written before the drop: it may have been delivered, so never say "not sent".
-                        self._notice("reply: " + _err_text(r))
-                    else:
-                        self._notice(_err_text(r))
+                    self._notice(_failure_text("reply", r))
 
             self.request("reply", cb, session_id=sid, text=text)
             self.views.pop()
@@ -258,16 +270,26 @@ class App:
         fn()
 
     def _open_approval(self, a) -> None:
+        if a.request_id in self._decided:
+            self.view.message = "request already answered or expired"
+            return
         self._with_pin(lambda: self.views.append(View("approval", request_id=a.request_id, session_id=a.session_id)))
 
     def _decide(self, a, behavior: str, message: str) -> None:
         def go() -> None:
+            if a.request_id in self._decided:
+                self._approval_gone()
+                return
+
             def cb(r: dict) -> None:
                 if r.get("ok"):
                     self._notice(f"{'allowed' if behavior == 'allow' else 'denied'}: {a.tool_name} in {a.project}")
                 else:
-                    self._notice(_err_text(r))
+                    if (r.get("error") or {}).get("code") != "lost":
+                        self._decided.discard(a.request_id)  # definitely not applied: may retry
+                    self._notice(_failure_text("decision", r))
 
+            self._decided.add(a.request_id)
             self.request("decide", cb, request_id=a.request_id, behavior=behavior, message=message)
             self._close_approval_views()
 
@@ -293,7 +315,7 @@ class App:
         elif key == UP:
             v.scroll = max(0, v.scroll - 1)
         elif key == DOWN:
-            v.scroll += 1
+            v.scroll = min(v.scroll + 1, max(0, len(approval_lines(a, self.cfg.ascii)) - (BODY_ROWS - 1)))
         elif key == BACK:
             self.views.pop()
 

@@ -117,6 +117,8 @@ def test_pin_asked_before_approval_then_remembered_then_expires(clock):
     assert app.view.screen == "approval"
     keys(app, "n", "n")  # deny is covered by the PIN too
     assert req.types() == ["decide"] and app.view.screen == "sessions"
+    app.on_event({"type": "approvals", "approvals": []})  # host snapshot drops the decided request
+    app.on_event({"type": "approvals", "approvals": [APPROVAL]})
     keys(app, "a", "y", "y")
     assert req.types() == ["decide", "decide"]
     clock.sleep(120)
@@ -238,3 +240,56 @@ def test_wifi_scan_only_runs_through_run_bg(clock):
     assert app.state.networks == () and len(jobs) == 1
     jobs.pop()()
     assert app.state.networks
+
+
+def test_decide_offline_and_lost_notices(clock):
+    from beepy_gpt.client.transport import LOST_MESSAGE, OFFLINE_MESSAGE
+
+    app, req, _ = make(clock)
+    keys(app, "a", "y", "y")
+    req.sent[-1][2]({"type": "response", "ok": False, "error": {"code": "offline", "message": OFFLINE_MESSAGE}})
+    assert app.state.notice == "not sent: " + OFFLINE_MESSAGE
+    keys(app, "a", "y", "y")  # definitely unsent: retry allowed
+    assert req.types().count("decide") == 2
+    req.sent[-1][2]({"type": "response", "ok": False, "error": {"code": "lost", "message": LOST_MESSAGE}})
+    assert app.state.notice == "decision: " + LOST_MESSAGE
+    keys(app, "a")
+    assert req.types().count("decide") == 2
+    assert "answered" in app.view.message
+
+
+def test_decided_request_not_resent_until_snapshot_drops_it(clock):
+    app, req, _ = make(clock)
+    keys(app, "a", "y", "y")
+    req.sent[-1][2]({"type": "response", "ok": True})
+    keys(app, "a")
+    assert app.view.screen == "sessions" and "answered" in app.view.message
+    assert req.types() == ["decide"]
+    app.on_event({"type": "approvals", "approvals": []})
+    app.on_event({"type": "approvals", "approvals": [APPROVAL]})
+    keys(app, "a")
+    assert app.view.screen == "approval"
+
+
+def test_approval_scroll_clamped(clock):
+    app, _, _ = make(clock)
+    keys(app, "a", *([DOWN] * 50))
+    top = app.view.scroll
+    assert top < 50
+    keys(app, UP)
+    assert app.view.scroll == max(0, top - 1)
+
+
+def test_unproducible_keys_ignored(clock):
+    app, _, _ = make(clock, pin="1234", pin_idle_minutes=1)
+    app.on_event({"type": "notice", "text": "hello"})
+    keys(app, "TAB", "F5", "CTRL-C")
+    assert app.state.notice == "hello" and app.running
+
+
+def test_led_realerts_after_reconnect(clock):
+    app, _, dev = make(clock)
+    app.on_event({"type": "connection", "status": "reconnecting"})
+    app.on_event({"type": "connection", "status": "online"})
+    app.on_event({"type": "sessions", "sessions": [S_BLOCKED, S_DONE, S_INTER]})
+    assert dev.led == [True, False, True]
