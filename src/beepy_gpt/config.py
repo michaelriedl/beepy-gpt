@@ -57,7 +57,7 @@ def _bool(raw: str) -> bool:
 
 
 def _read(path: Path) -> configparser.ConfigParser:
-    cp = configparser.ConfigParser()
+    cp = configparser.ConfigParser(interpolation=None)
     if path.exists():
         try:
             cp.read(path, encoding="utf-8")

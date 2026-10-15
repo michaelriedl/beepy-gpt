@@ -70,3 +70,9 @@ def test_invalid_bool(tmp_path):
 def test_examples_load():
     assert isinstance(load_client_config(ROOT / "config" / "client.example.ini"), ClientConfig)
     assert isinstance(load_host_config(ROOT / "config" / "host.example.ini"), HostConfig)
+
+
+def test_percent_sign_is_literal(tmp_path):
+    p = tmp_path / "client.ini"
+    p.write_text("[security]\npin = 12%34\n")
+    assert load_client_config(p).pin == "12%34"
