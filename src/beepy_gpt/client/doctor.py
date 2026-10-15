@@ -25,7 +25,8 @@ def run_client_doctor(
         try:
             p = run(argv, capture_output=True, text=True, timeout=20)
             ok = p.returncode == 0 and p.stdout.startswith("bgpt-host")
-            detail = p.stdout.strip() if ok else (p.stderr or p.stdout or "no output").strip().splitlines()[-1]
+            text = (p.stderr or p.stdout or "").strip()
+            detail = p.stdout.strip() if ok else (text.splitlines()[-1] if text else "no output")
         except (OSError, subprocess.SubprocessError) as e:
             ok, detail = False, str(e)
         checks.append((ok, "host", detail))

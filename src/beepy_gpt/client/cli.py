@@ -7,7 +7,6 @@ import logging
 import queue
 import sys
 import threading
-import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -106,14 +105,15 @@ def main(argv: Optional[list[str]] = None) -> int:
             events.put({"type": "wifi_status", "status": wifi.status()})
 
         _poll(stop, 15, wifi_status)
-    transport.start()
     try:
+        transport.start()
         run(app, events, frame=frame)
+    except KeyboardInterrupt:
+        return 130
     finally:
         stop.set()
         transport.stop()
         device.set_led_alert(False)
-        time.sleep(0.05)
     return 0
 
 

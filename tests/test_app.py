@@ -312,3 +312,16 @@ def test_lost_decision_can_be_redecided_after_reconnect(clock):
     assert app.view.screen == "approval"
     keys(app, "y", "y")
     assert req.types().count("decide") == 2
+
+
+def test_failed_decision_discard_goes_through_posted_event(clock):
+    app, req, _ = make(clock)
+    posted = []
+    app.post = posted.append  # transport thread only posts; nothing mutates state yet
+    keys(app, "a", "y", "y")
+    req.sent[-1][2]({"type": "response", "ok": False, "error": {"code": "offline", "message": "x"}})
+    assert APPROVAL["request_id"] in app._decided
+    assert {"type": "decide_failed", "request_id": APPROVAL["request_id"]} in posted
+    for ev in posted:
+        app.on_event(ev)
+    assert APPROVAL["request_id"] not in app._decided

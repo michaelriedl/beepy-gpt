@@ -82,6 +82,9 @@ class App:
             self.tracker.add(self.clock(), int(ev["percent"]), float(ev["volts"]))
             ev = {"type": "battery", "percent": self.tracker.percent,
                   "charging": self.tracker.charging, "low": self.tracker.low}
+        if ev.get("type") == "decide_failed":
+            self._decided.discard(ev.get("request_id"))
+            return
         prev = self.state
         self.state = reduce(self.state, ev)
         if ev.get("type") == "approvals":
@@ -289,7 +292,8 @@ class App:
                     self._notice(f"{'allowed' if behavior == 'allow' else 'denied'}: {a.tool_name} in {a.project}")
                 else:
                     if (r.get("error") or {}).get("code") != "lost":
-                        self._decided.discard(a.request_id)  # definitely not applied: may retry
+                        # definitely not applied: may retry (handled on the UI thread)
+                        self.post({"type": "decide_failed", "request_id": a.request_id})
                     self._notice(_failure_text("decision", r))
 
             self._decided.add(a.request_id)

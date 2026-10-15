@@ -54,3 +54,13 @@ def test_client_doctor_reports_problems():
     assert rc == 1
     text = "\n".join(lines)
     assert "ssh_target" in text and "40x20" in text
+
+
+def test_client_doctor_whitespace_stderr_does_not_crash():
+    run = FakeRun()
+    run.on(["ssh"], returncode=255, stderr="\n")
+    lines = []
+    rc = run_client_doctor(ClientConfig(ssh_target="user@workstation"), lines.append, run=run,
+                           device=None, wifi=None, term_size=lambda: os.terminal_size((50, 30)))
+    assert rc == 1
+    assert "[!!] host: no output" in lines
